@@ -27,6 +27,7 @@ let miniAppsHost;
 function miniApps() {
   return miniAppsHost ??= require('./mini-apps/host.cjs').createHost({
     root: path.join(dataDir(), 'mini-apps-v1'), session, dialog, WebContentsView, BrowserWindow, libraryChanged: () => emit('mini-apps:changed'),
+    safeStorage, openExternal: url => shell.openExternal(url),
   });
 }
 const { createStartPageServer } = require('./start-page-server.cjs');

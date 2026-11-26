@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SwipeForge</title>
+<style>
+:root{color-scheme:light dark;font:13px/1.4 Inter,system-ui,sans-serif;--bg:#f8f7fc;--card:#fff;--ink:#292635;--muted:#77728a;--line:#e6e3ef;--field:#f3f1f9;--accent:#2e7053;--accent-ink:#fff;--soft:#e7f3ec;--warn:#9a5b00;--danger:#b4233a;--ok:#2e7053}
+@media (prefers-color-scheme:dark){:root{--bg:#121320;--card:#1b1d2e;--ink:#eeeff9;--muted:#a3a5bc;--line:#303249;--field:#25273a;--accent:#82cfa8;--accent-ink:#0d2419;--soft:#1f3a2e;--warn:#f0b85a;--danger:#ff8f9f;--ok:#82cfa8}}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%}body{background:var(--bg);color:var(--ink);overflow:hidden}
+[hidden]{display:none!important}
+button,select,input,textarea{font:inherit;color:inherit;min-width:0}
+button{cursor:pointer;border:0;border-radius:8px;padding:7px 11px;background:var(--field)}
+button:hover:enabled{filter:brightness(.96)}button:disabled{opacity:.45;cursor:default}
+:is(button,select,input,textarea,a):focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+select,input,textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--field)}
+textarea{resize:vertical;min-height:64px}
+label{display:grid;gap:4px;font-size:11px;font-weight:600;color:var(--muted)}
+.primary{background:var(--accent);color:var(--accent-ink);font-weight:600}.danger{color:var(--danger)}
+.row{display:flex;align-items:center;gap:8px;min-width:0}.grow{flex:1;min-width:0}.wrap{flex-wrap:wrap}
+.muted{color:var(--muted)}.small{font-size:11px}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mark{flex:none;width:28px;height:28px}.icon{width:16px;height:16px;flex:none}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.segmented{display:flex;gap:2px;padding:2px;border-radius:9px;background:var(--field);border:1px solid var(--line)}
+.segmented button{flex:1;background:transparent;padding:5px 8px;border-radius:7px}.segmented button[aria-pressed=true]{background:var(--card);box-shadow:0 1px 2px #0002;font-weight:600}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:99px;padding:1px 8px;font-size:11px;font-weight:600;background:var(--field);white-space:nowrap}
+.chip[data-status=success],.chip[data-status=published]{background:var(--soft);color:var(--ok)}
+.chip[data-status=failed],.chip[data-status=cancelled]{color:var(--danger)}
+.chip[data-status=pending],.chip[data-status=in_progress],.chip[data-status=scheduled]{color:var(--warn)}
+.spin{width:12px;height:12px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .9s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(1turn)}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+#error{margin:0;color:var(--danger);font-size:12px;overflow-wrap:anywhere}#error:empty{display:none}
+.notice{margin:0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}.notice:empty{display:none}
+/* Full app */
+main{height:100%;overflow:auto;padding:18px;display:grid;gap:14px;align-content:start;max-width:1180px;margin:0 auto}
+header.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}header.top h1{font-size:18px;margin:0}
+.layout{display:grid;grid-template-columns:minmax(280px,380px) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:760px){.layout{grid-template-columns:1fr}}
+form#create{display:grid;gap:10px}
+.list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.item{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.thumb{width:56px;height:56px;border-radius:9px;background:var(--field);display:grid;place-items:center;overflow:hidden;color:var(--muted)}
+.thumb img{width:100%;height:100%;object-fit:cover}.thumb svg{width:22px;height:22px}
+.item .actions{display:flex;gap:4px}.item .actions button{padding:6px 8px}
+.tabs{display:flex;gap:4px}.tabs button[aria-selected=true]{background:var(--card);border:1px solid var(--line);font-weight:600}
+.pager{display:flex;justify-content:space-between;align-items:center}
+.empty{padding:22px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:12px}
+#connect-card{display:grid;gap:10px;max-width:560px}
+#connect-card ol{margin:0;padding-left:18px;color:var(--muted);display:grid;gap:3px}
+#panel{display:grid;gap:10px}
+/* Popover */
+body[data-view=popover]{background:var(--card);overflow-x:hidden;overflow-y:auto}
+body[data-view=popover] main{height:auto;padding:10px;gap:8px;overflow:visible}
+body[data-view=popover] .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+body[data-view=popover] #create{grid-template-columns:minmax(0,1fr) 76px;gap:8px}
+body[data-view=popover] #create>:is(#types,label:has(#prompt),#estimate,#generate){grid-column:1/-1}
+body[data-view=popover] #create .fields{grid-template-columns:1fr;align-self:end}
+body[data-view=popover] textarea{min-height:46px;height:46px;resize:none}
+body[data-view=popover] .list{gap:6px}
+body[data-view=popover] :is(header.top,.tabs,.pager,#filters,#panel,#confirm .detail,.item .secondary,.only-app){display:none!important}
+body[data-view=popover] .layout{grid-template-columns:1fr;gap:10px}
+body[data-view=popover] .card{border:0;padding:0;background:transparent}
+body[data-view=popover] .item{grid-template-columns:34px minmax(0,1fr) auto;padding:4px 6px;gap:8px;border-radius:10px}
+body[data-view=popover] .thumb{width:34px;height:34px;border-radius:7px}
+body[data-view=popover] .item .muted{display:none}
+body[data-view=popover] #create .advanced{display:none}
+/* Tile */
+#tile{display:none}
+body[data-view=tile]{background:transparent}
+body[data-view=tile] main{display:none}
+body[data-view=tile] #tile{display:flex;align-items:center;gap:8px;width:100vw;height:100vh;padding:0 8px;overflow:hidden;container-type:size}
+#tile .face{flex:none;width:min(56px,calc(100vh - 8px));height:min(56px,calc(100vh - 8px));border-radius:8px;overflow:hidden;display:grid;place-items:center;background:var(--field)}
+#tile .face img{width:100%;height:100%;object-fit:cover}#tile .face svg{width:70%;height:70%}
+#tile strong,#tile small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#tile strong{font-size:12px}#tile small{font-size:11px;color:var(--muted)}
+#tile .spin{margin-left:auto}
+@container (max-width:90px){#tile .text,#tile .spin{display:none}}
+@container (max-height:40px){#tile small{display:none}}
+@container (min-height:100px){#tile strong{font-size:14px}#tile small{font-size:12px;white-space:normal}}
+</style></head><body data-view="app">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<linearGradient id="sf-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1f6b4a"/><stop offset="1" stop-color="#7fd6a6"/></linearGradient>
+<symbol id="i-logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="url(#sf-g)"/><path d="M21.5 10.6c-1.3-1.3-3.1-2-5.3-2-3.3 0-5.6 1.8-5.6 4.4 0 5.4 10.1 3.3 10.1 7.3 0 1.4-1.5 2.4-3.9 2.4-2 0-3.7-.7-5-2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></symbol>
+<symbol id="i-video" viewBox="0 0 24 24"><path d="M4 6h11v12H4zM15 10l5-3v10l-5-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m4 17 5-5 4 4 3-3 4 4" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="15.5" cy="9" r="1.5" fill="currentColor"/></symbol>
+<symbol id="i-text" viewBox="0 0 24 24"><path d="M5 6h14M5 10h14M5 14h9M5 18h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+<symbol id="i-audio" viewBox="0 0 24 24"><path d="M4 10v4m4-7v10m4-13v16m4-12v8m4-5v2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+<symbol id="i-open" viewBox="0 0 24 24"><path d="M13 4h7v7m0-7-9 9M10 5H5v14h14v-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="m4 12 16-8-6 16-2.5-6.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+</defs></svg>
+<div id="tile" aria-live="polite"><div class="face" id="tile-face"><svg><use href="#i-logo"/></svg></div><div class="text grow"><strong id="tile-title">SwipeForge</strong><small id="tile-sub">Connect to start creating</small></div><span class="spin" id="tile-spin" hidden></span></div>
+<main>
+  <header class="top"><svg class="mark" aria-hidden="true"><use href="#i-logo"/></svg>
+    <div class="grow"><h1>SwipeForge</h1><div class="muted small ellipsis" id="identity">Not connected</div></div>
+    <div class="row wrap"><span class="chip" id="budget" hidden></span>
+      <button id="open-studio" type="button"><span class="row"><svg class="icon"><use href="#i-open"/></svg>Open SwipeForge</span></button>
+      <button id="disconnect" type="button" hidden>Disconnect</button></div>
+  </header>
+  <section class="card" id="connect-card" hidden>
+    <div class="row"><svg class="mark" aria-hidden="true"><use href="#i-logo"/></svg><strong class="grow">Connect SwipeForge</strong></div>
+    <ol class="only-app"><li>Nextbrowser opens SwipeForge in your browser.</li><li>Sign in with your Nextbrowser account, choose the permissions and a generation budget, then approve.</li><li>Come back here: your videos, images and posts appear in this app.</li></ol>
+    <p class="notice" id="connect-note"></p>
+    <div class="row wrap"><button class="primary" id="connect" type="button">Connect SwipeForge</button><button id="cancel-connect" type="button" hidden>Cancel</button></div>
+  </section>
+  <div class="layout" id="workspace" hidden>
+    <form class="card" id="create" novalidate>
+      <strong class="only-app">Create</strong>
+      <div class="segmented" role="group" aria-label="What to create" id="types">
+        <button type="button" data-type="video" aria-pressed="true">Video</button><button type="button" data-type="image" aria-pressed="false">Image</button><button type="button" data-type="text" aria-pressed="false">Text</button><button type="button" data-type="audio" aria-pressed="false" class="only-app">Audio</button>
+      </div>
+      <label><span class="lbl">Your idea</span><textarea id="prompt" maxlength="10000" placeholder="A paper boat drifting through a rainy neon street" rows="3" required></textarea></label>
+      <label><span class="lbl">Model</span><select id="model"></select></label>
+      <div class="fields">
+        <label data-for="video audio"><span class="lbl">Length, seconds</span><input id="duration" type="number" min="1" max="120" step="1" value="5"></label>
+        <label data-for="video" class="advanced">Resolution<select id="resolution"><option>480p</option><option selected>720p</option><option>1080p</option><option value="4k">4K</option></select></label>
+        <label data-for="video image" class="advanced">Shape<select id="aspect"><option value="9:16">9:16 vertical</option><option value="16:9">16:9 wide</option><option value="1:1">1:1 square</option><option value="4:5">4:5 portrait</option></select></label>
+        <label class="advanced">Made for<select id="platform"><option value="tiktok">TikTok</option><option value="instagram">Instagram</option><option value="youtube">YouTube</option><option value="x">X</option><option value="facebook">Facebook</option><option value="linkedin">LinkedIn</option></select></label>
+      </div>
+      <p class="notice" id="estimate" aria-live="polite"></p>
+      <button class="primary" id="generate" type="submit">Generate</button>
+    </form>
+    <section class="card" style="display:grid;gap:10px;min-width:0">
+      <div class="row wrap"><div class="tabs grow" role="tablist"><button type="button" role="tab" id="tab-creations" aria-selected="true">Creations</button><button type="button" role="tab" id="tab-posts" aria-selected="false">Posts</button></div>
+        <div class="row" id="filters"><select id="status-filter" aria-label="Filter by status"><option value="">All</option><option value="pending,in_progress">In progress</option><option value="success">Ready</option><option value="failed">Failed</option><option value="draft">Drafts</option></select></div></div>
+      <ul class="list" id="items" aria-live="polite"></ul>
+      <div class="pager"><button type="button" id="prev">Previous</button><span class="muted small" id="page"></span><button type="button" id="next">Next</button></div>
+    </section>
+  </div>
+  <section class="card" id="panel" hidden aria-label="Publish">
+    <div class="row"><strong class="grow" id="panel-title">Publish</strong><button type="button" id="panel-close">Close</button></div>
+    <div class="fields"><label>Account<select id="account"></select></label>
+      <label>When<select id="when"><option value="publish">Publish now</option><option value="schedule">Schedule</option></select></label>
+      <label id="at-field" hidden>Date and time<input id="at" type="datetime-local"></label>
+      <label id="x-kind-field" hidden>X post type<select id="x-kind"><option value="post">Post</option><option value="video">Video</option><option value="article">Article</option></select></label>
+      <label id="x-title-field" hidden>Article title<input id="x-title" maxlength="200"></label></div>
+    <p class="notice" id="panel-note"></p>
+    <div class="row wrap"><button class="primary" id="prepare" type="button">Send for approval</button><button type="button" id="finish-in-studio" hidden>Continue in SwipeForge</button></div>
+  </section>
+  <section class="card" id="confirm" hidden role="alertdialog" aria-labelledby="confirm-title">
+    <strong id="confirm-title"></strong><p class="notice detail" id="confirm-detail"></p>
+    <div class="row"><button class="primary" id="confirm-yes" type="button">Confirm</button><button id="confirm-no" type="button">Keep</button></div>
+  </section>
+  <p id="error" role="alert"></p>
+</main>
+<script>
+'use strict';
+const el = id => document.getElementById(id);
+const api = document.modelContext ?? navigator.modelContext;
+const uuid = () => crypto.randomUUID();
+const UUID = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+const PLATFORMS = ['tiktok','instagram','youtube','x','facebook','linkedin'];
+const TYPES = ['video','image','text','audio'];
+const state = { view:'app', connection:null, models:null, modelsAt:0, tab:'creations', page:1, pages:1, items:[], accounts:null,
+  thumbs:new Map(), saved:{revision:0,value:null}, publish:null, confirm:null, waitingApproval:null };
+
+// ---------- Desktop bridge ----------
+async function bridge(action, extra = {}) {
+  const response = await fetch('/swipeforge', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...extra, action }) });
+  let value = null;
+  try { value = await response.json(); } catch { /* No body. */ }
+  if (response.status === 403 || response.status === 410) throw Error('Open SwipeForge from the Nextbrowser desktop window to use your connection.');
+  if (!response.ok) throw Error(value?.error || 'SwipeForge is unavailable right now.');
+  return value;
+}
+async function remote(tool, args = {}) {
+  const out = await bridge('call', { tool, arguments: args });
+  if (out.isError) throw Error(out.error || 'SwipeForge rejected the request.');
+  return out.value;
+}
+// REST-backed SwipeForge tools wrap their payload as {status, data}.
+const rest = value => value && typeof value === 'object' && 'status' in value && 'data' in value ? value.data : value;
+const clip = (text, n) => typeof text === 'string' && text.length > n ? text.slice(0, n - 1) + '…' : text ?? null;
+
+// ---------- Validation shared by the UI and WebMCP ----------
+function check(schema, input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw Error('Expected an object of arguments.');
+  const props = schema.properties ?? {};
+  for (const key of Object.keys(input)) if (!Object.hasOwn(props, key)) throw Error(`Unknown argument "${key}".`);
+  for (const key of schema.required ?? []) if (input[key] === undefined || input[key] === '') throw Error(`"${key}" is required.`);
+  for (const [key, value] of Object.entries(input)) {
+    const p = props[key];
+    if (value === undefined) continue;
+    const ok = p.type === 'integer' ? Number.isSafeInteger(value) : p.type === 'number' ? typeof value === 'number' && Number.isFinite(value)
+      : p.type === 'object' ? !!value && typeof value === 'object' && !Array.isArray(value) : typeof value === p.type;
+    if (!ok) throw Error(`"${key}" must be ${p.type === 'integer' ? 'an integer' : p.type === 'object' ? 'an object' : 'a ' + p.type}.`);
+    if (p.enum && !p.enum.includes(value)) throw Error(`"${key}" must be one of: ${p.enum.join(', ')}.`);
+    if ((p.minimum !== undefined && value < p.minimum) || (p.maximum !== undefined && value > p.maximum) ||
+        (p.exclusiveMinimum !== undefined && value <= p.exclusiveMinimum)) throw Error(`"${key}" is out of range.`);
+    if (typeof value === 'string' && ((p.maxLength && value.length > p.maxLength) || (p.minLength && value.trim().length < p.minLength))) throw Error(`"${key}" has an invalid length.`);
+    if (p.pattern && !new RegExp(p.pattern).test(value)) throw Error(`"${key}" has an invalid format.`);
+    if (p.type === 'object' && JSON.stringify(value).length > 16000) throw Error(`"${key}" is too large.`);
+  }
+}
+const s = (description, extra = {}) => ({ type:'string', description, ...extra });
+const id = description => s(description, { pattern:UUID });
+const confirmArg = { type:'boolean', description:'true only after the user explicitly asked for this.' };
+const requestId = s('Optional stable ID for this request. Reuse it only to retry the same call after a timeout; omit it for a new request.', { minLength:8, maxLength:80, pattern:'^[A-Za-z0-9_-]+$' });
+const generation = {
+  type: s('What to create.', { enum:TYPES }),
+  prompt: s('The idea, scene description or script.', { minLength:1, maxLength:10000 }),
+  provider_id: s('provider_id from list_models.', { minLength:1, maxLength:60 }),
+  model: s('model from list_models.', { minLength:1, maxLength:160 }),
+  duration_seconds: { type:'integer', minimum:1, maximum:120, description:'Length for video or audio. Each model accepts its own lengths; the estimate reports a mismatch.' },
+  resolution: s('Video resolution.', { enum:['480p','720p','1080p','4k'] }),
+  aspect_ratio: s('Frame shape.', { enum:['9:16','16:9','1:1','4:5'] }),
+  platform: s('Platform the creation is made for. Defaults to tiktok.', { enum:PLATFORMS }),
+  title: s('Optional title shown in the SwipeForge library.', { maxLength:255 }),
+};
+function generationBody(input) {
+  const params = { providerId:input.provider_id, model:input.model, prompt:input.prompt };
+  if (input.duration_seconds !== undefined && ['video','audio'].includes(input.type)) params.duration = input.duration_seconds;
+  if (input.resolution && input.type === 'video') params.resolution = input.resolution;
+  if (input.aspect_ratio && ['video','image'].includes(input.type)) params.aspectRatio = input.aspect_ratio;
+  return { type:input.type, platformTarget:input.platform ?? 'tiktok', topic:input.prompt.slice(0, 500), prompt:input.prompt,
+    ...(input.title ? { title:input.title } : {}), generationParams:params };
+}
+function summary(item) {
+  const params = item?.generationParams ?? {};
+  return { id:item.id, type:item.type, status:item.status, title:clip(item.title || params.prompt || item.textContent || '', 90),
+    model:params.model ? `${params.providerId ?? ''}/${params.model}` : null, created_at:item.createdAt };
+}
+function postSummary(post) {
+  return { id:post.id, status:post.status, platform:post.platform ?? post.socialAccount?.platform ?? null, content_id:post.contentId ?? null,
+    account_id:post.socialAccountId ?? null, scheduled_at:post.scheduledAt ?? null, published_at:post.publishedAt ?? null,
+    url:post.platformPostUrl ?? post.postUrl ?? null, error:clip(post.errorMessage ?? post.lastError ?? null, 200) };
+}
+
+// ---------- Operations (the UI and every tool use these) ----------
+const ops = {
+  async get_connection() {
+    const status = await bridge('status');
+    const out = { connected:status.connected, pending:status.pending, problem:status.problem, studio_url:status.studioUrl,
+      scopes:status.scopes, connected_at:status.connectedAt, expires_at:status.expiresAt };
+    if (status.connected) {
+      const me = rest(await remote('get_workspace'));
+      out.workspace = { name:me?.tenant?.name ?? null, email:me?.email ?? null };
+      if (me?.mcp) out.budget = { total_usd:me.mcp.budgetEstimatedUsd, remaining_usd:me.mcp.remainingEstimatedUsd, reserved_usd:me.mcp.reservedEstimatedUsd };
+      try { out.generation_access = rest(await remote('get_generation_access'))?.status ?? null; } catch { out.generation_access = null; }
+    }
+    state.connection = out;
+    return out;
+  },
+  async connect() {
+    const status = await bridge('connect');
+    return { connected:status.connected, pending:status.pending,
+      message: status.connected ? 'SwipeForge is already connected.' : 'SwipeForge opened in the browser. Ask the user to sign in and approve Nextbrowser there, then call get_connection.' };
+  },
+  async disconnect({ confirm }) {
+    if (confirm !== true) throw Error('Ask the user to confirm disconnecting SwipeForge, then pass confirm=true.');
+    await bridge('disconnect');
+    state.connection = null; state.models = null; state.accounts = null; state.items = [];
+    return { connected:false };
+  },
+  async list_models({ type, include_unavailable = false }) {
+    if (!state.models || Date.now() - state.modelsAt > 300000) {
+      const value = await remote('get_generation_models');
+      state.models = (value?.models ?? []).map(m => ({ provider_id:m.providerId, model:m.model, type:m.type, available:m.available === true, priced:m.priced === true }));
+      state.modelsAt = Date.now();
+    }
+    const models = state.models.filter(m => (!type || m.type === type) && (include_unavailable || m.available));
+    return { models:models.slice(0, 60), note:'Models without a known price need a one-time cost approval in the browser.' };
+  },
+  async estimate_generation(input) {
+    const body = generationBody(input);
+    let estimate;
+    try { estimate = await remote('estimate_generation', { body }); }
+    catch (error) { return { price_known:false, message:error.message }; }
+    const out = { price_known:typeof estimate?.estimatedUsd === 'number', estimated_usd:estimate?.estimatedUsd ?? null,
+      simulation:estimate?.simulation === true, note:'List price estimate, not an invoice.' };
+    if (input.type === 'video') {
+      try {
+        const quote = rest(await remote('get_video_estimate', { body:{ provider:input.provider_id, model:input.model, resolution:input.resolution ?? '720p',
+          duration:input.duration_seconds ?? 5, ...(input.aspect_ratio ? { aspectRatio:input.aspect_ratio } : {}) } }));
+        if (quote?.low != null || quote?.high != null) Object.assign(out, { low_usd:quote.low, high_usd:quote.high });
+        if (quote?.note) out.quote_note = clip(quote.note, 200);
+      } catch { /* The UI quote is optional. */ }
+    }
+    return out;
+  },
+  async generate(input) {
+    const key = 'nb-' + (input.request_id ?? uuid());
+    const args = { body:generationBody(input), idempotencyKey:key, maxEstimatedUsd:input.max_estimated_usd };
+    if (input.action_id) args.actionId = input.action_id;
+    const value = await remote('start_generation', args);
+    if (value?.executed === false || value?.approvalUrl) {
+      if (value.approvalUrl) await bridge('open', { url:value.approvalUrl }).catch(() => {});
+      return { executed:false, price_unknown:value.priceUnknown === true, action_id:value.actionId ?? null, approval_url:value.approvalUrl ?? null,
+        message:'The price of this model is unknown. The user approves the cost on the SwipeForge page that opened; then call generate again with the same inputs, this action_id and a new request_id.' };
+    }
+    const content = rest(value);
+    if (!content?.id) throw Error('SwipeForge did not return the new creation. Check list_creations before trying again.');
+    return { executed:true, content_id:content.id, status:content.status, request_id:key.slice(3), next:'Poll get_creation until status is success or failed.' };
+  },
+  async list_creations({ status, type, search, page = 1, limit = 10 }) {
+    const query = { page:String(page), limit:String(limit), sort:'-createdAt' };
+    if (status) query.status = status;
+    if (type) query.type = type;
+    if (search) query.search = search;
+    const data = rest(await remote('list_content', { query }));
+    const items = (data?.items ?? []).map(summary);
+    return { items, page:data?.pagination?.page ?? page, total_pages:data?.pagination?.totalPages ?? 1, total:data?.pagination?.total ?? items.length };
+  },
+  async get_creation({ id }) {
+    const item = rest(await remote('get_content', { id }));
+    const params = item?.generationParams ?? {};
+    const media = rest(await remote('list_media', { query:{ contentId:id, limit:'10' } }))?.items ?? [];
+    return { ...summary(item), prompt:clip(params.prompt ?? item.topic ?? '', 1500), text:clip(item.textContent ?? '', 1500), revision:item.revision,
+      error:clip(item.errorMessage ?? null, 400), updated_at:item.updatedAt, platform:item.platformTarget,
+      settings:{ duration_seconds:params.duration ?? null, resolution:params.resolution ?? null, aspect_ratio:params.aspectRatio ?? null },
+      media:media.filter(m => m.contentId === id).slice(0, 6).map(m => ({ id:m.id, format:m.format, duration:m.duration ?? null, resolution:m.resolution ?? null, processing:m.processingStatus })),
+      studio_path:'/content/' + id };
+  },
+  async delete_creation({ id, confirm }) {
+    if (confirm !== true) throw Error('Ask the user to confirm deleting this creation, then pass confirm=true.');
+    await remote('delete_content', { id, idempotencyKey:'nb-delete-' + id });
+    return { deleted:id };
+  },
+  async list_accounts() {
+    const data = rest(await remote('list_accounts', { query:{ limit:'50' } }));
+    state.accounts = (data?.items ?? []).map(a => ({ id:a.id, platform:a.platform, name:clip(a.profileName ?? a.username ?? a.platformUserId ?? '', 80), status:a.status }));
+    return { accounts:state.accounts, note:state.accounts.length ? undefined : 'No social accounts yet. Connect one in SwipeForge (open_in_swipeforge page=accounts).' };
+  },
+  async prepare_post({ content_id, account_id, mode, scheduled_at, platform_settings = {}, request_id }) {
+    if (mode === 'schedule') {
+      if (!scheduled_at || Number.isNaN(Date.parse(scheduled_at))) throw Error('scheduled_at must be an ISO 8601 date and time for mode=schedule.');
+      if (Date.parse(scheduled_at) < Date.now() + 60000) throw Error('scheduled_at must be in the future.');
+    } else if (scheduled_at) throw Error('scheduled_at only applies to mode=schedule.');
+    const body = { contentId:content_id, socialAccountId:account_id, platformSettings:platform_settings, ...(mode === 'schedule' ? { scheduledAt:new Date(scheduled_at).toISOString() } : {}) };
+    const value = await remote('prepare_publication', { mode, body, idempotencyKey:'nb-' + (request_id ?? uuid()) });
+    if (value?.approvalUrl) await bridge('open', { url:value.approvalUrl }).catch(() => {});
+    return { action_id:value?.actionId ?? null, approval_url:value?.approvalUrl ?? null, expires_at:value?.expiresAt ?? null, status:value?.status ?? null,
+      next:'The user reviews and approves the post on the SwipeForge page that opened. Then check get_post_approval and call publish_approved.' };
+  },
+  async get_post_approval({ action_id }) {
+    try {
+      const action = await remote('get_action', { actionId:action_id });
+      return { action_id, approved:action?.approved === true, published:action?.claimed === true, post_id:action?.postId ?? null, expires_at:action?.expires ?? null,
+        status:action?.claimed ? 'published' : action?.approved ? 'approved' : 'awaiting_approval' };
+    } catch { return { action_id, approved:false, status:'expired_or_declined', message:'Prepare the post again if the user still wants it.' }; }
+  },
+  async publish_approved({ action_id, request_id }) {
+    const value = rest(await remote('commit_publication', { actionId:action_id, idempotencyKey:'nb-' + (request_id ?? action_id) }));
+    const post = value?.post ?? value;
+    return { post_id:post?.id ?? null, status:post?.status ?? null, scheduled_at:post?.scheduledAt ?? null, next:'Poll list_posts to follow delivery; an accepted post is not yet published.' };
+  },
+  async list_posts({ status, page = 1, limit = 10 }) {
+    const query = { page:String(page), limit:String(limit) };
+    if (status) query.status = status;
+    const data = rest(await remote('list_posts', { query }));
+    const items = (data?.items ?? []).map(postSummary);
+    return { items, page:data?.pagination?.page ?? page, total_pages:data?.pagination?.totalPages ?? 1, total:data?.pagination?.total ?? items.length };
+  },
+  async cancel_post({ id, confirm }) {
+    if (confirm !== true) throw Error('Ask the user to confirm cancelling this post, then pass confirm=true.');
+    const post = rest(await remote('cancel_post', { id, idempotencyKey:'nb-cancel-' + id }));
+    return { id, status:post?.status ?? 'cancelled' };
+  },
+  async open_in_swipeforge({ page = 'home', id }) {
+    const paths = { home:'/', create:'/create', library:'/content', creation:'/content/', calendar:'/calendar', posts:'/posting', accounts:'/accounts', connections:'/settings/mcp', settings:'/settings', levels:'/levels' };
+    if (page === 'creation' && !id) throw Error('Pass the creation id.');
+    await bridge('open', { path:paths[page] + (page === 'creation' ? id : '') });
+    return { opened:page };
+  },
+  async list_swipeforge_tools({ offset = 0, search }) {
+    const { tools } = await bridge('tools');
+    const needle = search?.toLowerCase();
+    const matches = tools.filter(t => !needle || t.name.includes(needle) || t.description.toLowerCase().includes(needle));
+    const page = [];
+    let size = 0;
+    for (const tool of matches.slice(offset)) {
+      const entry = { name:tool.name, read_only:tool.readOnly, description:clip(tool.description, 220) };
+      size += JSON.stringify(entry).length;
+      if (page.length && size > 5600) break;
+      page.push(entry);
+    }
+    const next = offset + page.length;
+    return { tools:page, total:matches.length, next_offset:next < matches.length ? next : undefined,
+      arguments:'Every tool takes {id?, query?, body?, idempotencyKey?, maxEstimatedUsd?, actionId?, mode?, platform?, operation?}. Call get_api_contract with operation=<tool> for the exact body.' };
+  },
+  async call_swipeforge_tool({ tool, arguments: args = {}, confirm }) {
+    const { tools } = await bridge('tools');
+    const found = tools.find(t => t.name === tool);
+    if (!found) throw Error('Unknown SwipeForge tool. Read list_swipeforge_tools.');
+    if (!found.readOnly && confirm !== true) throw Error('This tool changes data in SwipeForge. Ask the user, then pass confirm=true.');
+    if (['start_generation','start_bulk_generation','submit_draft','retry_generation','generate_from_template'].includes(tool) && typeof args.maxEstimatedUsd !== 'number') throw Error('Paid generation needs maxEstimatedUsd. Prefer estimate_generation and generate.');
+    const out = await bridge('call', { tool, arguments:args });
+    const text = JSON.stringify(out.isError ? { error:out.error } : out.value ?? null);
+    if (out.isError) throw Error(out.error);
+    return text.length > 6500 ? { truncated:true, json:text.slice(0, 6500), hint:'Narrow the result with query.limit, query.page or filters.' } : out.value;
+  },
+};
+
+// ---------- WebMCP registration: the full set, in every view, at startup ----------
+const tools = [
+  ['get_connection', 'Read whether SwipeForge is connected, the workspace, the generation budget left on this connection and its expiry.', {}],
+  ['connect', 'Open the SwipeForge sign-in in the user\'s browser so they can approve Nextbrowser, choose permissions and a budget. Poll get_connection afterwards.', {}],
+  ['disconnect', 'Revoke this SwipeForge connection on SwipeForge and remove it from this device.', { confirm:confirmArg }, ['confirm']],
+  ['list_models', 'List generation models with provider_id, model, type and availability for this workspace.', { type:s('Filter by type.', { enum:TYPES }), include_unavailable:{ type:'boolean', description:'Also list models that are not enabled now.' } }],
+  ['estimate_generation', 'Estimate the list price of a generation without starting it. Use before generate and tell the user the amount.', generation, ['type','prompt','provider_id','model']],
+  ['generate', 'Start one generation in SwipeForge. It runs in the background and is charged against the connection budget; poll get_creation for the result.',
+    { ...generation, max_estimated_usd:{ type:'number', exclusiveMinimum:0, maximum:1000, description:'Highest estimate in USD the user accepts for this generation.' }, request_id:requestId, action_id:s('Approval action_id returned for an unknown price, after the user approved it.', { maxLength:200 }) },
+    ['type','prompt','provider_id','model','max_estimated_usd']],
+  ['list_creations', 'List the newest creations (videos, images, texts, audio) with status. Page through with page.', { status:s('Comma-separated: draft, pending, in_progress, success, failed.', { pattern:'^[a-z_,]{1,80}$' }), type:s('Filter by type.', { enum:TYPES }), search:s('Text search.', { maxLength:120 }), page:{ type:'integer', minimum:1, maximum:1000 }, limit:{ type:'integer', minimum:1, maximum:20 } }],
+  ['get_creation', 'Read one creation: status, prompt, settings, error and media files.', { id:id('Creation ID.') }, ['id']],
+  ['delete_creation', 'Delete a creation from the SwipeForge library.', { id:id('Creation ID.'), confirm:confirmArg }, ['id','confirm']],
+  ['list_accounts', 'List the social accounts connected in SwipeForge, for publishing.', {}],
+  ['prepare_post', 'Prepare publishing or scheduling a finished creation to one account. Opens an approval page for the user; nothing is posted yet.',
+    { content_id:id('Creation ID.'), account_id:id('Account ID from list_accounts.'), mode:s('Publish now or at scheduled_at.', { enum:['publish','schedule'] }),
+      scheduled_at:s('ISO 8601 date and time for mode=schedule.', { maxLength:40 }), platform_settings:{ type:'object', description:'Platform options, for example {"kind":"video"} for X or TikTok privacy fields from call_swipeforge_tool get_creator_info.' }, request_id:requestId },
+    ['content_id','account_id','mode']],
+  ['get_post_approval', 'Check whether the user approved a prepared post.', { action_id:s('action_id from prepare_post.', { minLength:1, maxLength:200 }) }, ['action_id']],
+  ['publish_approved', 'Publish or schedule a post the user approved in the browser.', { action_id:s('Approved action_id.', { minLength:1, maxLength:200 }), request_id:requestId }, ['action_id']],
+  ['list_posts', 'List publishing jobs and their delivery status.', { status:s('Comma-separated post statuses.', { pattern:'^[a-z_,]{1,80}$' }), page:{ type:'integer', minimum:1, maximum:1000 }, limit:{ type:'integer', minimum:1, maximum:20 } }],
+  ['cancel_post', 'Cancel a queued or scheduled post.', { id:id('Post ID.'), confirm:confirmArg }, ['id','confirm']],
+  ['open_in_swipeforge', 'Open a SwipeForge page in the user\'s browser, for steps only a person does there (connecting social accounts, reviewing a video).',
+    { page:s('Page to open.', { enum:['home','create','library','creation','calendar','posts','accounts','connections','settings','levels'] }), id:id('Creation ID for page=creation.') }],
+  ['list_swipeforge_tools', 'List every SwipeForge MCP operation (templates, folders, media, avatars, Canva, tracking, analytics and more) for call_swipeforge_tool.', { offset:{ type:'integer', minimum:0 }, search:s('Filter by name or description.', { maxLength:60 }) }],
+  ['call_swipeforge_tool', 'Call any SwipeForge MCP operation from list_swipeforge_tools with its arguments. Changes need confirm=true and an arguments.idempotencyKey (8 to 128 characters) that you reuse only to retry the same change.',
+    { tool:s('Operation name.', { pattern:'^[a-z][a-z0-9_]{0,63}$' }), arguments:{ type:'object', description:'Arguments object for that operation.' }, confirm:confirmArg }, ['tool']],
+];
+const mutating = new Set(['connect','disconnect','generate','delete_creation','prepare_post','publish_approved','cancel_post','call_swipeforge_tool']);
+const schemas = {};
+for (const [name, description, properties, required = []] of tools) {
+  const inputSchema = schemas[name] = { type:'object', properties, required, additionalProperties:false };
+  api.registerTool({ name, description, inputSchema, async execute(input) {
+    try {
+      const args = typeof input === 'string' ? JSON.parse(input || '{}') : input ?? {};
+      check(inputSchema, args);
+      const value = await ops[name](args);
+      if (mutating.has(name)) void refresh({ quiet:true });
+      return { ok:true, value };
+    } catch (error) { return { ok:false, error:error.message }; }
+  } });
+}
+
+// ---------- UI ----------
+const report = error => { el('error').textContent = error?.message ?? ''; };
+const typeIcon = type => ({ video:'#i-video', image:'#i-image', text:'#i-text', audio:'#i-audio' })[type] ?? '#i-video';
+const statusLabel = status => ({ pending:'Queued', in_progress:'Rendering', success:'Ready', failed:'Failed', draft:'Draft', scheduled:'Scheduled', paused:'Paused', cancelled:'Cancelled', published:'Published' })[status] ?? status;
+const running = status => status === 'pending' || status === 'in_progress';
+function ago(iso) {
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (!Number.isFinite(minutes)) return '';
+  return minutes < 1 ? 'just now' : minutes < 60 ? minutes + ' min ago' : minutes < 1440 ? Math.round(minutes / 60) + ' h ago' : new Date(iso).toLocaleDateString();
+}
+function node(tag, attrs = {}, ...children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null && v !== false) k === 'text' ? n.textContent = v : n.setAttribute(k, v === true ? '' : v);
+  n.append(...children.filter(Boolean));
+  return n;
+}
+function icon(href, cls = 'icon') {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', cls); svg.setAttribute('aria-hidden', 'true');
+  const use = document.createElementNS(svg.namespaceURI, 'use'); use.setAttribute('href', href); svg.append(use);
+  return svg;
+}
+async function act(run) {
+  report();
+  try { return await run(); } catch (error) { report(error); }
+}
+
+// The last form settings are kept per installation so every view starts from them.
+const defaults = { type:'video', provider_id:'', model:'', duration_seconds:5, resolution:'720p', aspect_ratio:'9:16', platform:'tiktok' };
+function settings() { return { ...defaults, ...(state.saved.value?.settings ?? {}) }; }
+async function loadSaved() {
+  try {
+    const response = await fetch('/state');
+    if (!response.ok) return;
+    const saved = await response.json();
+    state.saved = saved?.value && typeof saved.value === 'object' && saved.value.version === 1 ? saved : { revision:saved?.revision ?? 0, value:null };
+  } catch { /* Defaults still work. */ }
+}
+let saveTimer;
+function saveSettings(next) {
+  state.saved.value = { version:1, settings:{ ...settings(), ...next } };
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await fetch('/state', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ revision:state.saved.revision, value:state.saved.value }) }).catch(() => null);
+      if (response?.ok) { state.saved.revision = (await response.json()).revision; return; }
+      if (response?.status !== 409) return;
+      const wanted = state.saved.value;
+      await loadSaved();
+      state.saved.value = wanted;
+    }
+  }, 400);
+}
+
+function formInput() {
+  const current = settings();
+  const [provider_id, model] = (el('model').value || '').split('|');
+  const input = { type:current.type, prompt:el('prompt').value.trim(), provider_id, model, platform:el('platform').value };
+  if (['video','audio'].includes(input.type) && el('duration').value) input.duration_seconds = Number(el('duration').value);
+  if (input.type === 'video') input.resolution = el('resolution').value;
+  if (['video','image'].includes(input.type)) input.aspect_ratio = el('aspect').value;
+  return input;
+}
+function syncTypeFields() {
+  const type = settings().type;
+  for (const button of el('types').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.type === type));
+  for (const field of document.querySelectorAll('[data-for]')) field.hidden = !field.dataset.for.split(' ').includes(type);
+}
+async function fillModels() {
+  const current = settings();
+  const { models } = await ops.list_models({ type:current.type });
+  const select = el('model');
+  const wanted = current.provider_id && current.model ? current.provider_id + '|' + current.model : select.value;
+  select.replaceChildren(...models.map(m => node('option', { value:m.provider_id + '|' + m.model, text:`${m.model} · ${m.provider_id}${m.priced ? '' : ' · price on approval'}` })));
+  if (!models.length) select.append(node('option', { value:'', text:'No ' + current.type + ' models are available right now' }));
+  if ([...select.options].some(o => o.value === wanted)) select.value = wanted;
+  select.disabled = !models.length;
+}
+let estimateTimer, estimateTick = 0, lastEstimate = null;
+function scheduleEstimate() {
+  clearTimeout(estimateTimer);
+  lastEstimate = null;
+  el('generate').textContent = 'Generate';
+  estimateTimer = setTimeout(updateEstimate, 500);
+}
+async function updateEstimate() {
+  const input = formInput();
+  const tick = ++estimateTick;
+  if (!state.connection?.connected || !input.model || !input.prompt) { el('estimate').textContent = ''; return; }
+  el('estimate').textContent = 'Estimating…';
+  try {
+    check(schemas.estimate_generation, input);
+    const estimate = await ops.estimate_generation(input);
+    if (tick !== estimateTick) return;
+    lastEstimate = { input:JSON.stringify(input), value:estimate };
+    if (estimate.price_known) {
+      const range = estimate.high_usd != null && estimate.high_usd !== estimate.estimated_usd ? ` (UI quote $${estimate.low_usd ?? '?'}–$${estimate.high_usd})` : '';
+      el('estimate').textContent = (estimate.simulation ? 'Test generation, no charge.' : `About $${estimate.estimated_usd.toFixed(2)}${range}. A list price estimate, not an invoice.`);
+      el('generate').textContent = estimate.simulation ? 'Generate' : `Generate · ~$${estimate.estimated_usd.toFixed(2)}`;
+    } else {
+      el('estimate').textContent = estimate.message || 'This model has no known price. SwipeForge asks you to approve the cost in the browser.';
+      el('generate').textContent = 'Request cost approval';
+    }
+  } catch (error) { if (tick === estimateTick) el('estimate').textContent = error.message; }
+}
+function budgetFor(estimate) {
+  const usd = estimate?.price_known ? estimate.estimated_usd : 0;
+  return Math.max(0.01, Math.ceil((usd * 1.2 + 0.005) * 100) / 100);
+}
+
+function renderConnection() {
+  const c = state.connection;
+  const connected = !!c?.connected;
+  el('connect-card').hidden = connected;
+  el('workspace').hidden = !connected;
+  el('disconnect').hidden = !connected;
+  el('budget').hidden = !c?.budget;
+  if (c?.budget) el('budget').textContent = `$${Number(c.budget.remaining_usd ?? 0).toFixed(2)} of $${Number(c.budget.total_usd ?? 0).toFixed(2)} budget left`;
+  el('identity').textContent = connected ? [c.workspace?.name, c.workspace?.email].filter(Boolean).join(' · ') || 'Connected' : c?.pending ? 'Waiting for approval in your browser' : 'Not connected';
+  el('connect').textContent = c?.pending ? 'Open the sign-in again' : 'Connect SwipeForge';
+  el('cancel-connect').hidden = !c?.pending;
+  el('connect-note').textContent = c?.pending ? 'Approve Nextbrowser on the SwipeForge page in your browser. This window updates by itself.' : c?.problem ?? '';
+  if (connected && c.generation_access && c.generation_access !== 'unlocked') {
+    el('estimate').textContent = 'For now this SwipeForge account makes text and up to 10 images. AI video opens on a higher level: see Levels in SwipeForge.';
+  }
+}
+async function thumbnail(item, box) {
+  if (item.status !== 'success' || !['video','image'].includes(item.type)) return;
+  if (!state.thumbs.has(item.id)) state.thumbs.set(item.id, bridge('thumbnail', { contentId:item.id }).then(r => r.image).catch(() => null));
+  const image = await state.thumbs.get(item.id);
+  if (image && box.isConnected) box.replaceChildren(node('img', { src:image, alt:'' }));
+}
+function renderItems() {
+  const list = el('items');
+  const popover = state.view === 'popover';
+  const items = popover ? state.items.slice(0, 2) : state.items;
+  if (!items.length) {
+    list.replaceChildren(node('li', { class:'empty', text: state.tab === 'posts' ? 'No posts yet.' : 'Nothing here yet. Describe an idea and press Generate.' }));
+  } else if (state.tab === 'posts') {
+    list.replaceChildren(...items.map(post => {
+      const actions = node('div', { class:'actions' });
+      if (['pending','scheduled','paused'].includes(post.status)) {
+        const cancel = node('button', { type:'button', class:'danger', text:'Cancel', 'aria-label':'Cancel post' });
+        cancel.onclick = () => ask('Cancel this post?', 'It stays in SwipeForge as cancelled.', () => ops.cancel_post({ id:post.id, confirm:true }));
+        actions.append(cancel);
+      }
+      if (post.content_id) {
+        const open = node('button', { type:'button', 'aria-label':'Open in SwipeForge' }, icon('#i-open'));
+        open.onclick = () => act(() => ops.open_in_swipeforge({ page:'creation', id:post.content_id }));
+        actions.append(open);
+      }
+      return node('li', { class:'item' }, node('div', { class:'thumb' }, icon('#i-send')),
+        node('div', {}, node('div', { class:'row' }, node('strong', { class:'ellipsis', text:post.platform ? post.platform[0].toUpperCase() + post.platform.slice(1) : 'Post' }), node('span', { class:'chip', 'data-status':post.status, text:statusLabel(post.status) })),
+          node('div', { class:'muted small ellipsis', text:post.error || (post.scheduled_at ? 'Scheduled for ' + new Date(post.scheduled_at).toLocaleString() : post.published_at ? 'Published ' + ago(post.published_at) : '') })),
+        actions);
+    }));
+  } else {
+    list.replaceChildren(...items.map(item => {
+      const box = node('div', { class:'thumb' }, icon(typeIcon(item.type)));
+      void thumbnail(item, box);
+      const chip = node('span', { class:'chip', 'data-status':item.status }, running(item.status) ? node('span', { class:'spin' }) : null, statusLabel(item.status));
+      const actions = node('div', { class:'actions' });
+      const open = node('button', { type:'button', 'aria-label':'Open in SwipeForge', title:'Open in SwipeForge' }, icon('#i-open'));
+      open.onclick = () => act(() => ops.open_in_swipeforge({ page:'creation', id:item.id }));
+      actions.append(open);
+      if (item.status === 'success') {
+        const publish = node('button', { type:'button', class:'secondary', 'aria-label':'Publish', title:'Publish' }, icon('#i-send'));
+        publish.onclick = () => openPublish(item);
+        actions.append(publish);
+      }
+      const remove = node('button', { type:'button', class:'secondary danger', 'aria-label':'Delete', title:'Delete' }, icon('#i-trash'));
+      remove.onclick = () => ask('Delete this creation?', 'It is removed from your SwipeForge library.', () => ops.delete_creation({ id:item.id, confirm:true }));
+      actions.append(remove);
+      return node('li', { class:'item' }, box,
+        node('div', {}, node('div', { class:'row' }, node('strong', { class:'ellipsis grow', text:item.title || 'Untitled' }), chip),
+          node('div', { class:'muted small ellipsis', text:[item.model, ago(item.created_at)].filter(Boolean).join(' · ') })),
+        actions);
+    }));
+  }
+  el('page').textContent = `Page ${state.page} of ${Math.max(1, state.pages)}`;
+  el('prev').disabled = state.page <= 1;
+  el('next').disabled = state.page >= state.pages;
+  renderTile();
+}
+function renderTile() {
+  if (state.view !== 'tile') return;
+  const c = state.connection;
+  const active = state.items.filter(i => running(i.status));
+  const latest = state.items[0];
+  el('tile-spin').hidden = !active.length;
+  if (!c?.connected) {
+    el('tile-title').textContent = 'SwipeForge';
+    el('tile-sub').textContent = c?.pending ? 'Waiting for your approval' : 'Connect to start creating';
+  } else if (active.length) {
+    el('tile-title').textContent = active.length === 1 ? 'Rendering ' + active[0].type : `Rendering ${active.length} creations`;
+    el('tile-sub').textContent = active[0].title || 'In progress';
+  } else if (latest) {
+    el('tile-title').textContent = latest.title || 'Latest creation';
+    el('tile-sub').textContent = statusLabel(latest.status) + ' · ' + ago(latest.created_at);
+  } else {
+    el('tile-title').textContent = 'SwipeForge';
+    el('tile-sub').textContent = 'No creations yet';
+  }
+  const face = el('tile-face');
+  if (latest && !active.length) void thumbnail(latest, face);
+  else face.replaceChildren(icon('#i-logo', ''));
+}
+let refreshing, lastRefresh = 0;
+async function refresh({ quiet = false } = {}) {
+  if (refreshing) return refreshing;
+  lastRefresh = Date.now();
+  refreshing = (async () => {
+    try {
+      await ops.get_connection();
+      renderConnection();
+      if (state.connection.connected) {
+        if (!state.models && state.view !== 'tile') { await fillModels(); syncTypeFields(); }
+        if (state.tab === 'posts') {
+          const posts = await ops.list_posts({ page:state.page });
+          state.items = posts.items; state.pages = posts.total_pages;
+        } else {
+          const filter = el('status-filter').value;
+          const list = await ops.list_creations({ page:state.page, limit:state.view === 'app' ? 10 : 5, ...(filter ? { status:filter } : {}) });
+          state.items = list.items; state.pages = list.total_pages;
+        }
+      } else state.items = [];
+      renderItems();
+      if (!quiet) report();
+    } catch (error) { renderTile(); if (!quiet || state.view !== 'tile') report(error); }
+    finally { refreshing = undefined; }
+  })();
+  return refreshing;
+}
+function nextDelay() {
+  if (state.connection?.pending || state.waitingApproval) return 2500;
+  return state.items.some(i => running(i.status)) ? 4000 : 20000;
+}
+// A one-second tick re-reads the delay, so starting a sign-in or a render speeds polling up at once.
+setInterval(() => { if (!document.hidden && !refreshing && Date.now() - lastRefresh >= nextDelay()) void refresh({ quiet:true }); }, 1000);
+
+function ask(title, detail, run) {
+  state.confirm = run;
+  el('confirm-title').textContent = title;
+  el('confirm-detail').textContent = detail;
+  el('confirm').hidden = false;
+  el('confirm-yes').focus();
+}
+el('confirm-no').onclick = () => { el('confirm').hidden = true; state.confirm = null; };
+el('confirm-yes').onclick = () => act(async () => { const run = state.confirm; el('confirm').hidden = true; state.confirm = null; if (run) await run(); await refresh(); });
+
+async function openPublish(item) {
+  state.publish = item;
+  el('panel').hidden = false;
+  el('panel-title').textContent = 'Publish: ' + (item.title || 'creation');
+  el('panel-note').textContent = '';
+  el('x-kind').value = item.type === 'video' ? 'video' : 'post';
+  const { accounts } = await act(() => ops.list_accounts()) ?? { accounts:[] };
+  el('account').replaceChildren(...accounts.map(a => node('option', { value:a.id, text:`${a.name || a.platform} · ${a.platform}` })));
+  if (!accounts.length) el('panel-note').textContent = 'Connect a social account in SwipeForge first.';
+  syncPublishFields();
+  el('panel').scrollIntoView({ block:'nearest' });
+}
+function syncPublishFields() {
+  const account = state.accounts?.find(a => a.id === el('account').value);
+  const platform = account?.platform;
+  const studioOnly = platform === 'tiktok' || platform === 'youtube';
+  el('at-field').hidden = el('when').value !== 'schedule';
+  el('x-kind-field').hidden = platform !== 'x';
+  el('x-title-field').hidden = platform !== 'x' || el('x-kind').value !== 'article';
+  el('finish-in-studio').hidden = !studioOnly;
+  el('prepare').hidden = studioOnly || !account;
+  if (studioOnly) el('panel-note').textContent = (platform === 'tiktok' ? 'TikTok' : 'YouTube') + ' asks for its own privacy and audience options. Finish this post in SwipeForge.';
+  else if (!state.waitingApproval) el('panel-note').textContent = account ? 'SwipeForge shows the exact post for your approval before anything is published.' : el('panel-note').textContent;
+}
+el('account').onchange = el('when').onchange = el('x-kind').onchange = syncPublishFields;
+el('panel-close').onclick = () => { el('panel').hidden = true; state.publish = null; state.waitingApproval = null; };
+el('finish-in-studio').onclick = () => act(() => ops.open_in_swipeforge({ page:'creation', id:state.publish.id }));
+el('prepare').onclick = () => act(async () => {
+  const account = state.accounts?.find(a => a.id === el('account').value);
+  const settingsFor = account?.platform === 'x' ? { kind:el('x-kind').value, ...(el('x-kind').value === 'article' ? { title:el('x-title').value.trim() } : {}) } : {};
+  const mode = el('when').value;
+  const input = { content_id:state.publish.id, account_id:account.id, mode, platform_settings:settingsFor, request_id:uuid().replace(/-/g, '') };
+  if (mode === 'schedule') input.scheduled_at = el('at').value ? new Date(el('at').value).toISOString() : '';
+  check(schemas.prepare_post, input);
+  const prepared = await ops.prepare_post(input);
+  state.waitingApproval = { action:prepared.action_id, request:input.request_id };
+  el('panel-note').textContent = 'Review and approve the post on the SwipeForge page in your browser. Nextbrowser publishes it as soon as you approve.';
+  el('prepare').disabled = true;
+  void watchApproval();
+});
+async function watchApproval() {
+  while (state.waitingApproval) {
+    const waiting = state.waitingApproval;
+    const approval = await ops.get_post_approval({ action_id:waiting.action }).catch(() => null);
+    if (state.waitingApproval !== waiting) return;
+    if (approval?.status === 'approved') {
+      const post = await act(() => ops.publish_approved({ action_id:waiting.action, request_id:waiting.request }));
+      state.waitingApproval = null;
+      el('prepare').disabled = false;
+      if (post) { el('panel-note').textContent = post.scheduled_at ? 'Scheduled. Follow it under Posts.' : 'Sent to the platform. Follow delivery under Posts.'; }
+      return;
+    }
+    if (approval?.status === 'expired_or_declined' || approval?.status === 'published') {
+      state.waitingApproval = null;
+      el('prepare').disabled = false;
+      el('panel-note').textContent = approval.status === 'published' ? 'Already published.' : 'The approval expired or was declined. Send it again if you still want to post.';
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 2500));
+  }
+}
+
+el('connect').onclick = () => act(async () => { await ops.connect(); await refresh(); });
+el('cancel-connect').onclick = () => act(async () => { await bridge('cancel'); await refresh(); });
+el('disconnect').onclick = () => ask('Disconnect SwipeForge?', 'Nextbrowser loses access to your SwipeForge workspace. Your creations stay in SwipeForge.', () => ops.disconnect({ confirm:true }));
+el('open-studio').onclick = () => act(() => ops.open_in_swipeforge({ page:'home' }));
+for (const button of el('types').querySelectorAll('button')) button.onclick = () => act(async () => {
+  saveSettings({ type:button.dataset.type, provider_id:'', model:'' });
+  syncTypeFields();
+  await fillModels();
+  scheduleEstimate();
+});
+el('model').onchange = () => { const [provider_id, model] = el('model').value.split('|'); saveSettings({ provider_id, model }); scheduleEstimate(); };
+for (const [field, key, read] of [['duration','duration_seconds',v => Number(v)],['resolution','resolution',v => v],['aspect','aspect_ratio',v => v],['platform','platform',v => v]]) {
+  el(field).onchange = () => { saveSettings({ [key]:read(el(field).value) }); scheduleEstimate(); };
+}
+el('prompt').oninput = scheduleEstimate;
+el('create').onsubmit = event => {
+  event.preventDefault();
+  return act(async () => {
+    const input = formInput();
+    if (!input.prompt) throw Error('Describe what to create.');
+    if (!input.model) throw Error('Choose a model.');
+    check(schemas.estimate_generation, input);
+    const estimate = lastEstimate?.input === JSON.stringify(input) ? lastEstimate.value : await ops.estimate_generation(input);
+    // After the user approved an unknown price in the browser, the same inputs carry that approval.
+    const approved = state.pendingCostApproval?.input === JSON.stringify(input) ? state.pendingCostApproval.action : undefined;
+    el('generate').disabled = true;
+    try {
+      const started = await ops.generate({ ...input, max_estimated_usd:budgetFor(estimate), ...(approved ? { action_id:approved } : {}) });
+      state.pendingCostApproval = null;
+      el('estimate').textContent = started.executed ? 'Started. It appears below and keeps rendering in SwipeForge if you close this window.' : 'Approve the cost on the SwipeForge page in your browser, then press Generate again.';
+      if (started.executed) { el('prompt').value = ''; state.tab = 'creations'; state.page = 1; }
+      if (!started.executed && started.action_id) state.pendingCostApproval = { input:JSON.stringify(input), action:started.action_id };
+    } finally { el('generate').disabled = false; }
+    await refresh();
+  });
+};
+el('tab-creations').onclick = () => { state.tab = 'creations'; state.page = 1; syncTabs(); void refresh(); };
+el('tab-posts').onclick = () => { state.tab = 'posts'; state.page = 1; syncTabs(); void refresh(); };
+function syncTabs() {
+  el('tab-creations').setAttribute('aria-selected', String(state.tab === 'creations'));
+  el('tab-posts').setAttribute('aria-selected', String(state.tab === 'posts'));
+  el('filters').hidden = state.tab !== 'creations';
+}
+el('status-filter').onchange = () => { state.page = 1; void refresh(); };
+el('prev').onclick = () => { state.page = Math.max(1, state.page - 1); void refresh(); };
+el('next').onclick = () => { state.page += 1; void refresh(); };
+
+fetch('/context').then(r => r.json()).catch(() => ({})).then(async context => {
+  state.view = context.view === 'popover' ? 'popover' : context.blockId ? 'tile' : 'app';
+  document.body.dataset.view = state.view;
+  if (state.view === 'popover') {
+    const panel = document.querySelector('main');
+    new ResizeObserver(() => {
+      const height = Math.ceil(panel.getBoundingClientRect().height);
+      if (height) void fetch('/context', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ height }) }).catch(() => {});
+    }).observe(panel);
+  }
+  await loadSaved();
+  const current = settings();
+  el('duration').value = current.duration_seconds;
+  el('resolution').value = current.resolution;
+  el('aspect').value = current.aspect_ratio;
+  el('platform').value = current.platform;
+  syncTypeFields();
+  await refresh();
+});
+</script></body></html>

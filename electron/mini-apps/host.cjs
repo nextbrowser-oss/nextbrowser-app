@@ -11,7 +11,9 @@ const origin = 'https://mini-app.invalid';
 const stateURL = origin + '/state';
 const contextURL = origin + '/context';
 const musicURL = origin + '/music';
+const swipeforgeURL = origin + '/swipeforge';
 const { createMusicPlayer } = require('./music-player.cjs');
+const { createSwipeForge } = require('./swipeforge.cjs');
 const csp = "sandbox allow-scripts allow-same-origin allow-forms; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'";
 const json = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 function pageOf(items, requestedOffset) {
@@ -43,11 +45,11 @@ async function readStateRequest(request) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-function createHost({ root, session, dialog, WebContentsView, BrowserWindow, libraryChanged }) {
-  const catalogIds = ['kanban', 'music-player'];
+function createHost({ root, session, dialog, WebContentsView, BrowserWindow, libraryChanged, safeStorage, openExternal }) {
+  const catalogIds = ['kanban', 'music-player', 'swipeforge'];
   const catalog = (id = 'kanban') => {
     if (!catalogIds.includes(id)) throw Error('Unknown catalog app.');
-    if (id === 'music-player') {
+    if (id === 'music-player' || id === 'swipeforge') {
       const folder = path.join(__dirname, 'catalog', id);
       const root = path.resolve(__dirname, '../..');
       const cssPath = 'mini-app-ui/select-fields.css';
@@ -65,6 +67,9 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
   const guestSessions = new WeakSet();
   const music = createMusicPlayer({ session, BrowserWindow, dialog, guestSessions, store, browserRoot: path.join(root,'music-browsers') });
   const officialPlayer = parsePackage(catalog('music-player'));
+  // Only the bundled package reaches the SwipeForge bridge; its tokens stay in this process.
+  const swipeforge = createSwipeForge({ root: path.join(root, 'swipeforge'), safeStorage, openExternal });
+  const officialSwipeForge = parsePackage(catalog('swipeforge'));
   function prepare(window, owner, id, blockId, surface, popover = false) {
     if (typeof popover !== 'boolean' || (popover && !blockId)) throw Error('Invalid widget view.');
     const { generation, pkg, placements } = store.read(owner, id);
@@ -75,7 +80,8 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
       if (b.shellId === shellId && b.owner === owner && b.id === id && b.generation === generation && b.blockId === blockId && b.surface === surface && b.popover === popover) return { partition, src: entry };
     }
     const partition = 'mini-app-' + randomUUID();
-    createPartition(partition, { shellId, owner, id, generation, blockId, surface, popover, music: id === 'music-player' && isDeepStrictEqual(pkg, officialPlayer) }, () => store.read(owner, id),
+    createPartition(partition, { shellId, owner, id, generation, blockId, surface, popover, music: id === 'music-player' && isDeepStrictEqual(pkg, officialPlayer),
+      swipeforge: id === 'swipeforge' && isDeepStrictEqual(pkg, officialSwipeForge) }, () => store.read(owner, id),
       (revision, value) => store.save(owner, id, generation, revision, value));
     return { partition, src: entry };
   }
@@ -89,7 +95,7 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
     isolated.setDevicePermissionHandler(() => false);
     isolated.on('will-download', event => event.preventDefault());
     isolated.webRequest.onBeforeRequest((details, done) => {
-      done({ cancel: !bindings.has(partition) || ![entry,stateURL,contextURL,musicURL].includes(details.url) });
+      done({ cancel: !bindings.has(partition) || ![entry,stateURL,contextURL,musicURL,swipeforgeURL].includes(details.url) });
     });
     isolated.protocol.handle('https', async request => {
       if (!bindings.has(partition)) return json(null, 410);
@@ -116,6 +122,14 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
           if (!bindings.has(partition) || scopes.get(binding.shellId)?.owner !== binding.owner) return json(null, 410);
           const active = () => bindings.has(partition) && scopes.get(binding.shellId)?.owner === binding.owner;
           try { return json(await music.action(binding, payload, active)); }
+          catch (e) { return json({ error: e.message }, 400); }
+        }
+        if (request.url === swipeforgeURL && request.method === 'POST') {
+          if (!binding.swipeforge || scopes.get(binding.shellId)?.owner !== binding.owner) return json(null, 403);
+          const payload = await readStateRequest(request);
+          const active = () => bindings.has(partition) && scopes.get(binding.shellId)?.owner === binding.owner;
+          if (!active()) return json(null, 410);
+          try { return json(await swipeforge.action(binding, payload, active)); }
           catch (e) { return json({ error: e.message }, 400); }
         }
         if (request.url === entry && request.method === 'GET') {
@@ -302,6 +316,10 @@ function createHost({ root, session, dialog, WebContentsView, BrowserWindow, lib
         if (id === 'music-player') {
           for (const [key,item] of bindings) if (item.owner === owner && item.id === id) bindings.delete(key);
           await music.clear(owner);
+        }
+        if (id === 'swipeforge') {
+          for (const [key,item] of bindings) if (item.owner === owner && item.id === id) bindings.delete(key);
+          await swipeforge.clear({ owner, generation: store.read(owner, id).generation });
         }
         store.remove(owner, id);
         libraryChanged();

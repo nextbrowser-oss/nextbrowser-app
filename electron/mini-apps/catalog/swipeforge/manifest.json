@@ -1,0 +1,56 @@
+{
+  "apiVersion": 2,
+  "id": "swipeforge",
+  "name": "SwipeForge",
+  "version": "1.0.0",
+  "description": "Generate videos, images and posts with SwipeForge, follow their progress and publish to your connected accounts after you approve each post.",
+  "icon": "video",
+  "permissions": [
+    "storage"
+  ],
+  "tools": [
+    "get_connection",
+    "connect",
+    "disconnect",
+    "list_models",
+    "estimate_generation",
+    "generate",
+    "list_creations",
+    "get_creation",
+    "delete_creation",
+    "list_accounts",
+    "prepare_post",
+    "get_post_approval",
+    "publish_approved",
+    "list_posts",
+    "cancel_post",
+    "open_in_swipeforge",
+    "list_swipeforge_tools",
+    "call_swipeforge_tool"
+  ],
+  "skill": "SwipeForge creates short videos, images, captions and audio and publishes them to the user's social accounts. Start with get_connection. If it is not connected, call connect and ask the user to approve Nextbrowser on the SwipeForge page that opens in their browser (they choose the permissions and a generation budget there), then poll get_connection. To create: list_models for the type, estimate_generation with type, prompt, provider_id and model (plus duration_seconds, resolution and aspect_ratio for video), tell the user the estimate, then generate with max_estimated_usd at or slightly above it. Keep request_id to retry a timed-out call. If generate returns price_unknown, the user approves the cost in the browser; call generate again with the same inputs, action_id and a new request_id. Generation runs in the background: poll get_creation until status is success or failed. To publish: list_accounts, prepare_post with content_id, account_id and mode, which opens an approval page; after the user approves (get_post_approval shows approved), call publish_approved. Ask before delete_creation, cancel_post and disconnect and pass confirm=true. Everything else in SwipeForge (templates, folders, media, avatars, Canva, tracking, analytics, notifications) is reachable through list_swipeforge_tools and call_swipeforge_tool. Connecting social accounts and every approval happen in the browser; never ask for passwords.",
+  "widgets": [
+    {
+      "id": "creations",
+      "name": "SwipeForge",
+      "surfaces": [
+        "chat.panel",
+        "settings.design"
+      ],
+      "grid": {
+        "min": [
+          2,
+          1
+        ],
+        "preferred": [
+          6,
+          2
+        ],
+        "max": [
+          12,
+          4
+        ]
+      }
+    }
+  ]
+}

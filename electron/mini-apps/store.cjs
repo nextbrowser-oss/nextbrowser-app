@@ -13,6 +13,10 @@ const shippedMusicHashes = new Map([
   ['1.1.0', '5ba0c7eee033cfa264523868bea710ef2aa0fc0e87d4578c5720543c1ca6f256'],
   ['1.2.0', 'b4020af5eb0705aec51f513eb336edb08a81bb55ff8f4c2308f89c71917a3c3d'],
 ]);
+// Add the HTML hash of each released SwipeForge version here when shipping the next one,
+// so earlier installations upgrade in place and keep their connection.
+const shippedSwipeForgeHashes = new Map();
+const shippedCatalogHashes = { 'music-player': shippedMusicHashes, swipeforge: shippedSwipeForgeHashes };
 function validateWidgets(pkg) {
   if (pkg.skill !== undefined && (typeof pkg.skill !== 'string' || !pkg.skill.trim() || pkg.skill.length > 2400)) throw Error('Invalid mini app skill.');
   if (pkg.widgets === undefined) return;
@@ -43,7 +47,7 @@ function parsePackage(raw) {
       typeof p.description !== 'string' || p.description.length > 240 ||
       typeof p.version !== 'string' || !/^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(p.version) ||
       typeof p.html !== 'string' || !p.html.trim() ||
-      (p.icon !== undefined && !['board', 'calendar', 'list', 'notebook', 'chart', 'grid', 'music'].includes(p.icon)) ||
+      (p.icon !== undefined && !['board', 'calendar', 'list', 'notebook', 'chart', 'grid', 'music', 'video'].includes(p.icon)) ||
       !Array.isArray(p.permissions) || p.permissions.length > 1 || p.permissions.some(v => v !== 'storage')) {
     throw Error('Mini Apps v2 requires a valid manifest and a nonempty list of unique WebMCP tool names.');
   }
@@ -78,13 +82,15 @@ function createStore(root, catalog) {
         write(file, record);
       }
     }
-    // Keep the generation: it also identifies the user's isolated music logins.
-    if (id === 'music-player' && catalog && shippedMusicHashes.has(record.pkg.version) &&
+    // Keep the generation: it also identifies the user's isolated music logins
+    // and the SwipeForge connection.
+    const shipped = Object.hasOwn(shippedCatalogHashes, id) ? shippedCatalogHashes[id] : undefined;
+    if (shipped && catalog && shipped.has(record.pkg.version) &&
         createHash('sha256').update(record.pkg.html.replace(/\r\n/g, '\n')).digest('hex') ===
-          shippedMusicHashes.get(record.pkg.version)) {
+          shipped.get(record.pkg.version)) {
       const updated = catalog(id);
       if (updated.id === id && updated.version !== record.pkg.version) {
-        const legacySize = record.pkg.version === '1.0.0';
+        const legacySize = id === 'music-player' && record.pkg.version === '1.0.0';
         record.pkg = updated;
         for (const [key, size] of Object.entries(record.placements ?? {})) {
           if (legacySize && size[0] === 10 && size[1] === 2) record.placements[key] = [...updated.widgets[0].grid.preferred];
