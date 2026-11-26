@@ -122,8 +122,8 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     if (name === 'get_permissions') {
       const { files, terminal, android, setup, folder, shells, defaultShell } = prefs;
       return { files, terminal, android, setup, folder, platform: process.platform, shells, defaultShell, adbAvailable: Boolean(prefs.adb),
-        fileToolScope: 'Directory listings and file reads are limited to the workspace folder.',
-        commandAccess: terminal === 'off' ? 'Terminal disabled.' : !shells.length ? 'No supported shell installed.'
+        fileToolScope: 'The built-in file tools only list directories and read files inside the workspace. They cannot create a directory or write a file.',
+        commandAccess: terminal === 'off' ? 'Terminal disabled. Workspace tools cannot create folders in the workspace or on the Desktop.' : !shells.length ? 'No supported shell installed.'
           : 'Terminal commands start in the workspace and can use OS-accessible paths, including the Desktop, after the user approves the command.' };
     }
     if (name === 'search_mcp_catalog') {
