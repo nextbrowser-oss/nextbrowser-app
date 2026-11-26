@@ -160,7 +160,9 @@ async function connectUserMcpTools(servers, { signal, onStep = () => {}, strict 
       await client.initialize(30_000);
       const tools = await client.listTools(30_000);
       for (const tool of tools) {
-        const name = `mcp_${server.id.replace(/-/g, '')}_${routes.size}`;
+        // The desktop owns the stock catalog. Its instructions and the model must
+        // refer to the same stable names even when a permission hides a tool.
+        const name = server.id === 'stock' ? `workspace_${tool.name}` : `mcp_${server.id.replace(/-/g, '')}_${routes.size}`;
         routes.set(name, { client, tool });
         definitions.push({ type: 'function', function: { name, description: `[${server.name}] ${tool.name}: ${String(tool.description || '').slice(0, 600)}`, parameters: toOpenAIParameters(tool.inputSchema, { strict }) } });
       }

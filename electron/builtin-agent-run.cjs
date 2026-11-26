@@ -6,7 +6,7 @@
 const { createMCPClient } = require("./automation-runner.cjs");
 const { TAB_INSTRUCTIONS } = require("./tab-mcp.cjs");
 const { instructions: miniAppInstructions } = require('./mini-apps/mcp.cjs');
-const { instructions: stockInstructions } = require('./stock-mcp.cjs');
+const { toolInstructions: stockInstructions } = require('./stock-mcp.cjs');
 const { ProviderError, createProviderClient, modelSupportsVision, resolveProviderSettings } = require("./builtin-agent-providers.cjs");
 const { createMCPToolset } = require("./builtin-agent-tools.cjs");
 const { connectUserMcpTools, mergeToolsets } = require('./user-mcp.cjs');
@@ -193,7 +193,7 @@ async function runBuiltinAgentTurn({
         browserUnavailable && "Browser tools are unavailable this turn. For browser requests report that status. Use workspace tools for requested local development tasks.",
         toolset?.has("tab_tools_list") && TAB_INSTRUCTIONS,
         userMcpServers.some(server => server.id === 'miniapps') && miniAppInstructions,
-        userMcpServers.some(server => server.id === 'stock') && stockInstructions,
+        hasWorkspaceTools && stockInstructions('workspace_'),
       ].filter(Boolean).join("\n"),
       prompt: statusOnly
         ? "Configured workspace MCP services (names only): " + JSON.stringify(userMcpServers.map(server => server.name)) + "\n\nCurrent user request:\n" + chatTurn.request

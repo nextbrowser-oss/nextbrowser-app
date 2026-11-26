@@ -8,7 +8,9 @@ const { normalizeServer } = require('./user-mcp.cjs');
 const { shells, adbExecutable, safeText, readEntry, resolveEntry, runShell, runProgram } = require('./stock-mcp-operations.cjs');
 
 const endpoint = '/stock/mcp';
-const instructions = 'For requested programming work use Workspace tools to inspect files, edit code and run tests in the selected folder. run_command uses the default shell (normally Bash) unless a shell is specified. For Android development use android_devices before targeting a specific device. Check get_permissions for runtime availability. Terminal and Android operations show a desktop approval. A denial is final for that action. To add an MCP, use propose_mcp_server to open an editable proposal for the user, then wait for Connect & save. The new tools are available next turn.';
+function toolInstructions(prefix = '') {
+  return `For local computer tasks, including creating a file or folder, check ${prefix}get_permissions for the available shells and permissions before reporting that you lack access. File listing and reading are scoped to the selected folder. ${prefix}run_command starts there and runs as the OS user after desktop approval. Use it for the specific path the user requested. Ask for a missing name or destination when needed. Check the command result before reporting success. A denial is final for that action. For Android development use ${prefix}android_devices before selecting a device. To connect another MCP use ${prefix}propose_mcp_server and wait for Connect & save. Its tools become available on the next turn.`;
+}
 const modes = { files: ['ask', 'allow', 'off'], terminal: ['ask', 'off'], android: ['ask', 'off'], setup: ['review', 'off'] };
 const defaults = { files: 'ask', terminal: 'ask', android: 'ask', setup: 'review' };
 const string = description => ({ type: 'string', description });
@@ -119,7 +121,7 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     check();
     if (name === 'get_permissions') {
       const { files, terminal, android, setup, folder, shells, defaultShell } = prefs;
-      return { files, terminal, android, setup, folder, shells, defaultShell, adbAvailable: Boolean(prefs.adb) };
+      return { files, terminal, android, setup, folder, platform: process.platform, shells, defaultShell, adbAvailable: Boolean(prefs.adb) };
     }
     if (name === 'search_mcp_catalog') {
       if (!safeText(args.search, 100) || args.search.includes('\n')) throw Error('Enter a short public search term.');
@@ -202,9 +204,9 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
       const prefs = valid && policy(session.scope);
       const tools = valid ? catalog.filter(t => !t.group || prefs[t.group] !== 'off').map(t => t.definition) : [];
       return await serveLocalMcp(request, response, valid && ((name, args) => execute(session.scope, name, args, AbortSignal.any([session.signal, client.signal]))),
-        { serverInfo: { name: 'nextbrowser-workspace-tools', version: '1.0.0' }, instructions, tools });
+        { serverInfo: { name: 'nextbrowser-workspace-tools', version: '1.0.0' }, instructions: toolInstructions(), tools });
     } finally { response.off('close', disconnect); }
   }
   return { open, serve, settings };
 }
-module.exports = { createStockMcp, endpoint, instructions };
+module.exports = { createStockMcp, endpoint, toolInstructions };

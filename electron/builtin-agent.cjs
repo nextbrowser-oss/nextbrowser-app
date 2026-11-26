@@ -23,7 +23,7 @@ const DEFAULT_LIMITS = Object.freeze({
   maxRetryWaitMs: 30_000,
 });
 
-const BUILTIN_AGENT_SYSTEM_PROMPT = `You are the Nextbrowser agent. You do browser tasks in Nextbrowser profiles and use the user's connected MCP services, using only the tools you are given.
+const BUILTIN_AGENT_SYSTEM_PROMPT = `You are the Nextbrowser agent. Use the tools available this turn for the user's request: browser tools for websites, workspace tools for local computer tasks, and connected MCP services for their own operations.
 
 How to work:
 - Answer the latest user message. Earlier requests give context. A topic change, a question about your capabilities, or an offer in your own reply does not authorize resuming a paused task. Ask a short clarifying question if the intended action is unclear.

@@ -86,7 +86,7 @@ const MCP_TOOLS = [
   { name: "evaluate", description: "Eval.", inputSchema: { type: "object", properties: { expression: { type: "string" } }, additionalProperties: false } },
 ];
 
-function fakeMCP(handler = () => ({ content: [{ type: "text", text: "ok" }] })) {
+function fakeMCP(handler = () => ({ content: [{ type: "text", text: "ok" }] }), tools = MCP_TOOLS) {
   const calls = [];
   const spawned = [];
   const children = [];
@@ -104,7 +104,7 @@ function fakeMCP(handler = () => ({ content: [{ type: "text", text: "ok" }] })) 
           const answer = message.method === "initialize"
             ? { protocolVersion: "2025-11-25", capabilities: {} }
             : message.method === "tools/list"
-              ? { tools: MCP_TOOLS }
+              ? { tools }
               : handler(message.params.name, message.params.arguments);
           Promise.resolve(answer).then((result) => {
             if (result === undefined) return; // never answers
@@ -538,27 +538,29 @@ test('connected MCP tools reach the model, execute and do not enter plain runs',
   finally { await plainProvider.close(); }
 });
 
-test('workspace tools execute with a missing or unlaunchable browser CLI', async () => {
+test('the model can call the workspace command by its documented name even without the browser CLI', async () => {
   for (const browser of [undefined, { binary: '/unavailable', spawnImpl() { throw Error('Browser unavailable'); } }]) {
-    const workspace = fakeMCP(() => ({ content: [{ type: 'text', text: 'workspace-ok' }] }));
+    const workspace = fakeMCP(() => ({ content: [{ type: 'text', text: 'workspace-ok' }] }), [
+      { name: 'run_command', description: 'Execute after approval.', inputSchema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
+    ]);
     const provider = await fakeProvider((body, _request, index) => {
       if (index === 0) {
-        const tool = body.tools.find(item => item.function.description.startsWith('[Workspace tools]'));
-        assert.ok(tool);
-        return reply({ tool_calls: [toolCall(tool.function.name, {})] });
+        assert.match(body.messages[0].content, /workspace_run_command/);
+        assert.ok(body.tools.some(item => item.function.name === 'workspace_run_command'));
+        return reply({ tool_calls: [toolCall('workspace_run_command', { command: 'mkdir demo' })] });
       }
       assert.ok(body.messages.some(message => message.role === 'tool' && message.content.includes('workspace-ok')));
       return reply({ content: 'Workspace ready.' });
     });
     try {
       const result = await turn(provider, null, {
-        prompt: 'Check my working folder.',
+        prompt: 'Create a folder called demo.',
         mcp: browser,
         userMcpServers: [{ id: 'stock', name: 'Workspace tools', command: '/fake/workspace', args: [] }],
         userMcpDeps: { spawnImpl: workspace.spawnImpl },
       }).promise;
       assert.equal(result.stdout, 'Workspace ready.');
-      assert.equal(workspace.toolCalls().length, 1);
+      assert.deepEqual(workspace.toolCalls(), [{ name: 'run_command', arguments: { command: 'mkdir demo' } }]);
     } finally { await provider.close(); }
   }
 });
