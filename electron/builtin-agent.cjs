@@ -278,24 +278,8 @@ async function runBuiltinAgent({
   };
 
   try {
-    if (toolDefinitions && onReport) {
-      update("Planning the task…");
-      const planned = await requestWithRetries({
-        model, temperature: 0.2, max_tokens: 320,
-        messages: [{ role: "system", content: "Respond to the latest user message in their language. Use the preceding exchange only to resolve references. If the user asks for an explanation you can give from this context, return the answer prefixed with ANSWER:. If the intended action is unclear, return one clarifying question prefixed with ANSWER:. Otherwise return a practical plan of at most three short lines. If asked to try one interaction, stop after verifying it. Do not claim fresh checks or actions." }, ...history.slice(-2), { role: "user", content: request }],
-      });
-      if (signal?.aborted) return ended("cancelled");
-      const planningText = messageText(planned.message?.content).trim();
-      const directAnswer = /^ANSWER:\s*([\s\S]+)$/i.exec(planningText)?.[1].trim();
-      if (directAnswer) {
-        update("Answer ready");
-        return ended("completed", { text: directAnswer });
-      }
-      plan = planningText.split("\n").map(line => firstLine(line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, ""), 180)).filter(Boolean).slice(0, 3);
-      if (!plan.length) plan = ["Identify the requested result", "Check available evidence", "Report verified findings and any missing information"];
-      messages.push({role: "assistant", content: "Plan:\n" + plan.join("\n")});
-      update(plan[0]);
-    }
+    let planning = Boolean(toolDefinitions && onReport);
+    if (planning) update("Planning the task…");
     async function partial(status) {
       let summary = "";
       // A single read-only synthesis can preserve findings. No more actions are allowed here.
@@ -318,16 +302,36 @@ async function runBuiltinAgent({
       if (now() >= deadline) return ended("timeout");
       if (steps >= limits.maxSteps) return await partial("max_steps");
       fitContext(messages, limits);
-      const { message, finishReason } = await requestWithRetries();
+      // The first decision uses the same conversation and callable tools as execution.
+      // In particular, a previous assistant's refusal is not a permissions check.
+      const { message, finishReason } = await requestWithRetries(planning ? {
+        model, temperature: 0.2, tools: toolDefinitions, tool_choice: "auto",
+        messages: [{ ...messages[0], content: messages[0].content + "\nFor a simple request, call the relevant tool, answer, or ask for missing details directly. If the task needs a plan first, prefix up to three short lines with PLAN:. Base capability checks on current tools and their results. For a recheck of access, use a read-only check; do not perform an earlier action merely to prove access." }, ...messages.slice(1)],
+      } : undefined);
+      if (signal?.aborted) return ended("cancelled");
+      let text = messageText(message.content);
+      const calls = toolDefinitions ? parseToolCalls(message.tool_calls, steps + 1) : [];
+      if (planning) {
+        planning = false;
+        if (/^PLAN:\s*/i.test(text)) {
+          plan = text.replace(/^PLAN:\s*/i, "").split("\n").map(line => firstLine(line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, ""), 180)).filter(Boolean).slice(0, 3);
+          if (plan.length) {
+            update(plan[0]);
+            if (!calls.length) {
+              messages.push({ role: "assistant", content: "Plan:\n" + plan.join("\n") });
+              continue;
+            }
+          }
+          text = "";
+        }
+      }
       steps += 1;
-      const text = messageText(message.content);
       if (chatTurn && !toolDefinitions && (!text || message.tool_calls?.length)) {
         const clarification = /[а-яё]/iu.test(request)
           ? "Что именно проверить сейчас?"
           : "What would you like me to check now?";
         return ended("completed", { text: clarification });
       }
-      const calls = toolDefinitions ? parseToolCalls(message.tool_calls, steps) : [];
       if (!calls.length) {
         if (!text && !nudged && finishReason !== "length") {
           // Some free models end a tool loop with an empty message. Ask once.

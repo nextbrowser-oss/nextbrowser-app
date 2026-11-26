@@ -172,7 +172,7 @@ test("a status question about MCP after a paused search never executes the older
 });
 
 test("an explanation about a different topic can finish at the planning step without a browser call", async () => {
-  const provider = await fakeProvider(() => reply({ content: "ANSWER: MCP connects an agent to tools." }));
+  const provider = await fakeProvider(() => reply({ content: "MCP connects an agent to tools." }));
   const mcp = fakeMCP();
   try {
     const request = "What does MCP do?";
@@ -189,7 +189,7 @@ test("an explicit action after changing topics reaches the planner and the tools
   const history = [{ role: "user", content: "Расскажи про MCP" }, { role: "assistant", content: "Это протокол." }];
   const request = "А теперь открой example.com";
   const provider = await fakeProvider((_body, _req, index) => {
-    if (!index) return reply({ content: "Открыть страницу" });
+    if (!index) return reply({ content: "PLAN: Открыть страницу" });
     if (index === 1) return reply({ tool_calls: [toolCall("open", { url: "https://example.com" })] });
     return reply({ content: "Открыто." });
   });
@@ -200,6 +200,37 @@ test("an explicit action after changing topics reaches the planner and the tools
     assert.deepEqual(provider.requests[0].body.messages.slice(1), [...history, { role: "user", content: request }]);
     assert.deepEqual(provider.requests[1].body.messages.slice(1, 4), [...history, { role: "user", content: request }]);
     assert.deepEqual(mcp.toolCalls().map(call => call.name), ["open"]);
+  } finally { await provider.close(); }
+});
+
+test("a chat rechecks Desktop access through the current workspace tools after an earlier refusal", async () => {
+  const history = [
+    { role: "user", content: "Можешь создать папку на рабочем столе?" },
+    { role: "assistant", content: "У меня нет доступа к рабочему столу." },
+  ];
+  const request = "Точно? Перепроверь.";
+  const workspace = fakeMCP(() => ({ content: [{ type: "text", text: '{"terminal":"ask","shells":["powershell"]}' }] }), [
+    { name: "get_permissions", inputSchema: { type: "object", properties: {} } },
+    { name: "run_command", inputSchema: { type: "object", properties: { command: { type: "string" } } } },
+  ]);
+  const provider = await fakeProvider((body, _req, index) => {
+    if (!index) {
+      assert.ok(body.tools.some(tool => tool.function.name === "workspace_get_permissions"));
+      assert.match(body.messages[0].content, /workspace_run_command/);
+      assert.deepEqual(body.messages.slice(1), [...history, { role: "user", content: request }]);
+      return reply({ content: "PLAN: Проверить разрешения", tool_calls: [toolCall("workspace_get_permissions", {})] });
+    }
+    assert.match(body.messages.at(-1).content, /powershell/);
+    return reply({ content: "Да, с твоего разрешения. Как назвать папку?" });
+  });
+  try {
+    const reports = [];
+    const result = await turn(provider, fakeMCP(), { prompt: request, chatTurn: { request, history }, onReport: report => reports.push(report),
+      userMcpServers: [{ id: "stock", name: "Workspace tools", command: "/fake/workspace", args: [] }],
+      userMcpDeps: { spawnImpl: workspace.spawnImpl }, useHarness2: true }).promise;
+    assert.equal(result.stdout, "Да, с твоего разрешения. Как назвать папку?");
+    assert.deepEqual(workspace.toolCalls().map(call => call.name), ["get_permissions"]);
+    assert.deepEqual(reports.at(-1).plan, ["Проверить разрешения"]);
   } finally { await provider.close(); }
 });
 
@@ -357,7 +388,7 @@ test("the run stops after its step limit", async () => {
 test("plans before acting and pauses a stale-element loop with confirmed partial results", async () => {
   const reports = [];
   const provider = await fakeProvider((body, _req, index) => {
-    if (!index) { assert.ok(!body.tools); return reply({content:"Check the route\nCompare verified fares"}); }
+    if (!index) { assert.ok(body.tools.length); return reply({content:"PLAN: Check the route\nCompare verified fares"}); }
     if (!body.tools) return reply({content:"No fare was verified. The calendar could not be selected."});
     return reply({tool_calls:[toolCall("click", {element_id:709})]});
   });

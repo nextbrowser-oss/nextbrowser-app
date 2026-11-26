@@ -3477,7 +3477,6 @@ async function invokeCommand(command, args = {}, sender) {
             onReport: plain ? undefined : report => emit("agent:report", [args.replyId, report]),
             ...(plain ? { limits: { runTimeoutMs: 5 * 60_000 } } : {}),
           });
-          if (result.stdout) emitText(result.stdout);
           emit("agent:done", [args.replyId, result.code, result.stderr, result.stdout, result.reason, result.failure]);
           return { code: result.code, stdout: result.stdout, stderr: result.stderr, reason: result.reason, failure: result.failure };
         }

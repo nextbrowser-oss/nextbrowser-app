@@ -121,7 +121,10 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     check();
     if (name === 'get_permissions') {
       const { files, terminal, android, setup, folder, shells, defaultShell } = prefs;
-      return { files, terminal, android, setup, folder, platform: process.platform, shells, defaultShell, adbAvailable: Boolean(prefs.adb) };
+      return { files, terminal, android, setup, folder, platform: process.platform, shells, defaultShell, adbAvailable: Boolean(prefs.adb),
+        fileToolScope: 'Directory listings and file reads are limited to the workspace folder.',
+        commandAccess: terminal === 'off' ? 'Terminal disabled.' : !shells.length ? 'No supported shell installed.'
+          : 'Terminal commands start in the workspace and can use OS-accessible paths, including the Desktop, after the user approves the command.' };
     }
     if (name === 'search_mcp_catalog') {
       if (!safeText(args.search, 100) || args.search.includes('\n')) throw Error('Enter a short public search term.');
