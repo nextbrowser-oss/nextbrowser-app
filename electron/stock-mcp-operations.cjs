@@ -56,8 +56,8 @@ async function resolveEntry(root, relative) {
 }
 async function readEntry(root, relative, list, offset = 0) {
   if (!Number.isSafeInteger(offset) || offset < 0) throw Error('Invalid offset.');
-  const target = await resolveEntry(root, relative);
   if (list) {
+    const target = await resolveEntry(root, relative);
     const before = await fs.promises.stat(target);
     if (!before.isDirectory()) throw Error('Choose a directory.');
     const entries = (await fs.promises.readdir(target, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
@@ -66,6 +66,13 @@ async function readEntry(root, relative, list, offset = 0) {
     const page = entries.slice(offset, offset + 20).map(d => ({ name: d.name, type: d.isDirectory() ? 'directory' : d.isFile() ? 'file' : 'link or special file' }));
     return { entries: page, nextOffset: offset + page.length < entries.length ? offset + page.length : null };
   }
+  const { content, sha256 } = await readWorkspaceText(root, relative);
+  const text = content.slice(offset, offset + 4000);
+  return { text, sha256, nextOffset: offset + text.length < content.length ? offset + text.length : null };
+}
+
+async function readWorkspaceText(root, relative) {
+  const target = await resolveEntry(root, relative);
   const before = await fs.promises.stat(target);
   if (!before.isFile()) throw Error('Choose a regular UTF-8 text file.');
   const file = await fs.promises.open(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
@@ -82,14 +89,14 @@ async function readEntry(root, relative, list, offset = 0) {
     }
     const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, used));
     if (content.includes('\0')) throw Error('Choose a UTF-8 text file.');
-    const text = content.slice(offset, offset + 4000);
-    return { text, sha256: createHash('sha256').update(bytes.subarray(0, used)).digest('hex'), nextOffset: offset + text.length < content.length ? offset + text.length : null };
+    return { content, bom: bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])),
+      sha256: createHash('sha256').update(bytes.subarray(0, used)).digest('hex') };
   } finally { await file.close(); }
 }
 
 const activeWorkspaceWrites = new Set();
 
-async function editEntry(root, relative, directory, content, expected, check) {
+async function editEntry(root, relative, directory, content, expected, check, maxBytes = 64 * 1024) {
   if (!safeText(relative, 600) || relative.includes('\n')) throw Error('Choose a workspace path.');
   const parts = relative.split(/[\\/]/).filter(part => part !== '.');
   if (!parts.length || parts.some(part => !part || /[<>:"|?*]|[. ]$/.test(part) || /^(con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(part))) throw Error('Choose a relative workspace path with a valid name.');
@@ -106,7 +113,7 @@ async function editEntry(root, relative, directory, content, expected, check) {
     }
     return { created: relative };
   }
-  if (typeof content !== 'string' || content.includes('\0') || Buffer.byteLength(content) > 64 * 1024) throw Error('Write at most 64 KiB of UTF-8 text at once.');
+  if (typeof content !== 'string' || content.includes('\0') || Buffer.byteLength(content) > maxBytes) throw Error(`Write at most ${maxBytes / 1024} KiB of UTF-8 text at once.`);
   if (expected !== undefined && (typeof expected !== 'string' || !/^[a-f0-9]{64}$/.test(expected))) throw Error('Use the sha256 returned by read_text_file.');
   const key = process.platform === 'win32' ? target.toLowerCase() : target;
   if (activeWorkspaceWrites.has(key)) throw Error('Another edit is in progress. Read the file again.');
@@ -147,8 +154,8 @@ async function writeWorkspaceText(root, relative, parentPath, parent, target, co
 function shellArgs(shell, command) {
   return shell === 'bash' ? ['--noprofile', '--norc', '-c', command] : ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command];
 }
-function runShell(file, shell, command, cwd, signal) {
-  return runProgram(file, shellArgs(shell, command), cwd, signal);
+function runShell(file, shell, command, cwd, signal, timeoutMs, onOutput) {
+  return runProgram(file, shellArgs(shell, command), cwd, signal, timeoutMs, undefined, onOutput);
 }
 
 function workspaceShellEnvironment() {
@@ -176,7 +183,7 @@ function workspaceShellEnvironment() {
   return env;
 }
 
-async function runWorkspaceShell(file, shell, command, cwd, signal) {
+async function runWorkspaceShell(file, shell, command, cwd, signal, timeoutMs = 25_000, onOutput) {
   if (cwd === path.parse(cwd).root || path.relative(cwd, os.homedir()) === '') {
     throw Error('Choose a project folder in Agent permissions before running Autopilot commands.');
   }
@@ -188,15 +195,16 @@ async function runWorkspaceShell(file, shell, command, cwd, signal) {
     '-c', 'sandbox_workspace_write.network_access=false'];
   if (process.platform === 'win32') args.push('-c', 'windows.sandbox=elevated');
   args.push('--', file, ...shellArgs(shell, command));
-  return runProgram(runner, args, cwd, signal, 25_000, workspaceShellEnvironment());
+  return runProgram(runner, args, cwd, signal, timeoutMs, workspaceShellEnvironment(), onOutput);
 }
-function runProgram(file, args, cwd, signal, timeoutMs = 25_000, env = serverEnvironment(process.env)) {
+function runProgram(file, args, cwd, signal, timeoutMs = 25_000, env = serverEnvironment(process.env), onOutput) {
   signal.throwIfAborted();
   const child = spawn(file, args, { cwd, shell: false, windowsHide: true, env, stdio: ['ignore', 'pipe', 'pipe'] });
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0, truncated = false, stopping = false;
     const capture = chunk => {
+      onOutput?.(chunk.toString('utf8'));
       const room = 5500 - size;
       if (chunk.length > room) truncated = true;
       if (room > 0) { const part = chunk.subarray(0, room); chunks.push(part); size += part.length; }
@@ -220,4 +228,4 @@ function runProgram(file, args, cwd, signal, timeoutMs = 25_000, env = serverEnv
     });
   });
 }
-module.exports = { shells, adbExecutable, safeText, readEntry, editEntry, resolveEntry, runShell, runWorkspaceShell, runProgram };
+module.exports = { shells, adbExecutable, safeText, readEntry, readWorkspaceText, editEntry, resolveEntry, runShell, runWorkspaceShell, runProgram };

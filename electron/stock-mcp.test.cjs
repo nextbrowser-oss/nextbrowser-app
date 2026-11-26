@@ -7,6 +7,103 @@ const http = require('node:http');
 const { createStockMcp } = require('./stock-mcp.cjs');
 const { readEntry, runShell, shells } = require('./stock-mcp-operations.cjs');
 const { createHttpMcpClient } = require('./mcp-http-client.cjs');
+const { runBuiltinAgentTurn } = require('./builtin-agent-run.cjs');
+
+test('finds code and applies a unique patch while preserving unrelated bytes and permissions', async t => {
+  const { host, scope, client } = await fixture(t);
+  const prefs = await host.settings(scope, 'stock_mcp_preset', { preset: 'autonomous' });
+  await fs.mkdir(prefs.folder, { recursive: true });
+  const file = path.join(prefs.folder, 'math.js');
+  const original = '\uFEFF// header\r\nconst oldValue = 2;\r\n// preserved\r\n' + 'x'.repeat(70000);
+  await fs.writeFile(file, original);
+  const call = async (name, args) => {
+    const result = await client.callTool(name, args);
+    assert.ok(!result.isError, result.content[0].text);
+    return JSON.parse(result.content[0].text);
+  };
+  const found = await call('search_files', { path: '.', query: 'oldValue' });
+  assert.deepEqual(found.matches, [{ path: 'math.js', line: 2, text: 'const oldValue = 2;' }]);
+  const { sha256 } = await call('read_text_file', { path: 'math.js' });
+  const args = { path: 'math.js', expected_sha256: sha256, old_text: found.matches[0].text, new_text: 'const value = 1;\nconst doubled = value * 2;' };
+  const patched = await call('patch_file', args);
+  assert.match(patched.diff, /@@ -2,1 \+2,2 @@/);
+  assert.equal(await fs.readFile(file, 'utf8'), original.replace(args.old_text, args.new_text.replace('\n', '\r\n')));
+  assert.equal((await client.callTool('patch_file', args)).isError, true);
+  await fs.writeFile(file, 'a\na\n');
+  const current = await call('read_text_file', { path: 'math.js' });
+  assert.equal((await client.callTool('patch_file', { ...args, expected_sha256: current.sha256, old_text: 'a' })).isError, true);
+  await host.settings(scope, 'stock_mcp_set', { group: 'edits', mode: 'off' });
+  assert.equal((await client.callTool('patch_file', args)).isError, true);
+  await host.settings(scope, 'stock_mcp_set', { group: 'files', mode: 'off' });
+  assert.equal((await client.callTool('search_files', { path: '.', query: 'value' })).isError, true);
+});
+
+test('background execution uses the approved sandbox and the owning MCP session; revocation interrupts it', async t => {
+  let stop;
+  const stopped = new Promise(resolve => { stop = resolve; });
+  const { host, scope, client, session } = await fixture(t, undefined, {
+    sandboxShell: (_file, _shell, _cmd, _cwd, signal, timeout, onOutput) => new Promise(resolve => {
+      assert.equal(timeout, 600000);
+      onOutput('building');
+      signal.addEventListener('abort', () => { stop(); resolve({ exitCode: null }); }, { once: true });
+    }),
+  });
+  await host.settings(scope, 'stock_mcp_preset', { preset: 'autopilot' });
+  const args = { command: 'npm test', background: true };
+  const start = await client.callTool('run_command', args);
+  const { job_id } = JSON.parse(start.content[0].text);
+  const status = { job_id, wait_ms: 0 };
+  assert.equal(JSON.parse((await client.callTool('command_status', status)).content[0].text).output, 'building');
+  const other = host.open(scope, new URL(session.server.url).origin, new AbortController().signal, 'other-chat');
+  const otherClient = createHttpMcpClient(other.server);
+  t.after(() => { otherClient.close(); other.close(); });
+  assert.equal((await otherClient.callTool('command_status', status)).isError, true);
+  assert.equal((await client.callTool('run_command', args)).isError, true);
+  await host.settings(scope, 'stock_mcp_set', { group: 'terminal', mode: 'off' });
+  await stopped;
+  assert.equal((await client.callTool('command_status', status)).isError, true);
+});
+
+test('a coding chat verifies test exit codes after its last patch and rejects an unsupported success claim', async t => {
+  const command = 'node --test price.test.cjs';
+  const { host, scope, session } = await fixture(t, async (_scope, _chat, prompt) =>
+    prompt.detail.startsWith(command) ? 'once' : 'deny');
+  const policy = await host.settings(scope, 'stock_mcp_preset', { preset: 'autonomous' });
+  await fs.mkdir(policy.folder, { recursive: true });
+  const broken = 'module.exports = (p, d) => p * (1 + d / 100);';
+  const fixed = broken.replace('+', '-');
+  await fs.writeFile(path.join(policy.folder, 'price.test.cjs'), "require('node:assert/strict').equal(require('./price.cjs')(100,20),80);");
+  for (const variant of ['repair', 'premature', 'stale', 'missing']) {
+    await fs.writeFile(path.join(policy.folder, 'price.cjs'), variant === 'stale' ? fixed : broken);
+    let turn = 0;
+    const exits = [];
+    const request = 'Исправь расчёт скидки и проверь тестами.';
+    const fetchImpl = async (_url, options) => {
+      const body = JSON.parse(options.body);
+      const last = body.messages.at(-1);
+      const data = last.role === 'tool' ? JSON.parse(last.content) : {};
+      if (Number.isInteger(data.exitCode)) exits.push(data.exitCode);
+      const call = (name, args) => ({ role: 'assistant', tool_calls: [{id: 'c' + turn, type: 'function', function: {name: 'workspace_' + name, arguments: JSON.stringify(args)}}] });
+      let answer = {role: 'assistant', content: 'Готово, все тесты прошли.'};
+      turn++;
+      if (variant !== 'missing' && turn === 1) answer = call('run_command', { command, shell: policy.defaultShell });
+      if (variant !== 'premature' && variant !== 'missing') {
+        if (turn === 2) answer = call('read_text_file', { path: 'price.cjs' });
+        if (turn === 3) answer = call('patch_file', {path:'price.cjs', expected_sha256:data.sha256, old_text:data.text, new_text:variant === 'repair' ? fixed : broken});
+        if (turn === 4 && variant === 'repair') answer = call('run_command', { command, shell: policy.defaultShell, background:true });
+        if (turn === 5 && variant === 'repair') answer = call('command_status', { job_id:data.job_id, wait_ms:20000 });
+      }
+      return Response.json({choices:[{message:answer, finish_reason:answer.tool_calls ? 'tool_calls' : 'stop'}]});
+    };
+    const result = await runBuiltinAgentTurn({ settings:{provider:'custom',baseURL:'http://127.0.0.1:1/v1',model:'fixture'},
+      loadKey:async()=>'', userMcpServers:[session.server], prompt:request, chatTurn:{request}, fetchImpl });
+    assert.equal(result.status, variant === 'repair' ? 'completed' : 'verification_pending', JSON.stringify(result));
+    if (variant === 'repair') { assert.deepEqual(exits,[1,0]); assert.match(result.stdout,/price\.cjs/); }
+    else assert.doesNotMatch(result.stdout,/все тесты прошли/);
+    if (variant === 'premature') assert.match(result.stdout,/код выхода 1/);
+    if (variant === 'stale') assert.match(result.stdout,/до последнего изменения/);
+  }
+});
 
 async function fixture(t, requestApproval = async () => 'deny', options = {}) {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'nb-stock-test-'));

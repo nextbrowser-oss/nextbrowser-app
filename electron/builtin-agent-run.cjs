@@ -67,6 +67,9 @@ function turnResult(outcome, limits) {
       const reason = "The page repeatedly returned the same blocker. Review the current page or choose another source, then continue.";
       return { ...failed(reason, { code: "no_progress", expected: true }), status: "no_progress", stdout: outcome.text || "" };
     }
+    case "verification_pending": {
+      return { status: "verification_pending", code: 1, stdout: outcome.text, stderr: "", reason: "", failure: { code: "verification_pending", expected: true } };
+    }
     case "timeout": {
       const reason = `The Nextbrowser agent did not finish within ${Math.round(limits.runTimeoutMs / 60_000)} minutes and was stopped. Try a smaller task.`;
       return { ...failed(reason, { code: "timeout", expected: false }), status: "timeout" };

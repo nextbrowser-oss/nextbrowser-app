@@ -6,11 +6,13 @@ const { createHash, randomUUID } = require('node:crypto');
 const { createAppSettings } = require('./app-settings.cjs');
 const { serveLocalMcp } = require('./local-mcp-transport.cjs');
 const { normalizeServer } = require('./user-mcp.cjs');
+const { patchFile, searchFiles } = require('./workspace-code-tools.cjs');
+const { createCommandJobs } = require('./workspace-command-jobs.cjs');
 const { shells, adbExecutable, safeText, readEntry, editEntry, resolveEntry, runShell, runWorkspaceShell, runProgram } = require('./stock-mcp-operations.cjs');
 
 const endpoint = '/stock/mcp';
 function toolInstructions(prefix = '') {
-  return `For local computer tasks check ${prefix}get_permissions before reporting that you lack access. Use workspace file tools for paths inside the selected folder. For a requested OS path such as the Desktop, use ${prefix}run_command if available and follow its commandAccess and commandFolder. The desktop handles approvals. Ask for a missing name or destination when needed. Check the tool result before reporting success. A denial is final for that action. Check permissions again on a new user request because the user can change modes between turns. For Android development use ${prefix}android_devices before selecting a device. To connect another MCP use ${prefix}propose_mcp_server and wait for Connect & save. Its tools become available on the next turn.`;
+  return `For local computer tasks check ${prefix}get_permissions before reporting that you lack access. Use workspace file tools for paths inside the selected folder. For coding tasks, use ${prefix}search_files to locate code, read the file, then use ${prefix}patch_file with its current hash. Run requested tests after the final edit. Use background=true for long commands and ${prefix}command_status until an exit code is available. For a requested OS path such as the Desktop, use ${prefix}run_command if available and follow its commandAccess and commandFolder. The desktop handles approvals. Ask for a missing name or destination when needed. Check the tool result before reporting success. A denial is final for that action. Check permissions again on a new user request because the user can change modes between turns. For Android development use ${prefix}android_devices before selecting a device. To connect another MCP use ${prefix}propose_mcp_server and wait for Connect & save. Its tools become available on the next turn.`;
 }
 const modes = { files: ['ask', 'allow', 'off'], edits: ['ask', 'allow', 'off'], terminal: ['ask', 'trusted', 'approved', 'sandbox', 'off'], android: ['ask', 'inspect', 'read-only', 'off'], setup: ['review', 'catalog', 'off'] };
 const defaults = { files: 'ask', edits: 'off', terminal: 'ask', android: 'ask', setup: 'review' };
@@ -46,13 +48,23 @@ const catalog = [
   tool('get_permissions', null, 'Read workspace permissions, working directory and available shell names.', {}),
   tool('list_directory', 'files', 'List entries in the workspace folder.', { path: relativePath, offset }, ['path']),
   tool('read_text_file', 'files', 'Read a page of a UTF-8 file in the workspace folder.', { path: relativePath, offset }, ['path']),
+  tool('search_files', 'files', 'Search source files recursively for literal text. Returns paths, line numbers and excerpts. Narrow the directory if truncated. Skips hidden and generated directories.', {
+    path: relativePath, query: string('Case-sensitive literal text on one line.'),
+  }, ['path', 'query']),
   tool('create_directory', 'edits', 'Create a directory inside an existing workspace directory.', { path: relativePath }, ['path']),
   tool('write_text_file', 'edits', 'Create a UTF-8 file (up to 64 KiB). To replace an existing file, first read it and supply its sha256.', {
     path: relativePath, content: string('Full new file contents.'), expected_sha256: string('Current file hash for replacement. Omit to create a new file.'),
   }, ['path', 'content']),
-  tool('run_command', 'terminal', 'Run one foreground command in the current terminal mode and command folder. Returns output and exit code.', {
+  tool('patch_file', 'edits', 'Replace one unique block of complete lines in a previously read UTF-8 file. Returns the applied diff. Use an empty new_text to delete the block.', {
+    path: relativePath, old_text: string('Exact complete lines to replace.'), new_text: string('Replacement lines.'), expected_sha256: string('Hash from read_text_file.'),
+  }, ['path', 'old_text', 'new_text', 'expected_sha256']),
+  tool('run_command', 'terminal', 'Run a command in the current terminal mode and folder. For long builds or tests use background=true, then poll command_status until you get the exit code.', {
     shell: { type: 'string', enum: ['bash', 'powershell'] }, command: string('The exact command to display and execute.'),
+    background: { type: 'boolean', description: 'Run for up to 10 minutes during this turn and return a job_id immediately after approval.' },
   }, ['command']),
+  tool('command_status', 'terminal', 'Wait for an already approved background command. Returns current output and the exit code when finished. Keep using the same job_id.', {
+    job_id: string('The job_id returned by run_command.'), wait_ms: { type: 'integer', minimum: 0, maximum: 20000 },
+  }, ['job_id']),
   tool('android_devices', 'android', 'List attached Android devices and emulators and their authorization status.', {}),
   tool('android_device_info', 'android', 'Read the Android SDK level of the selected device.', { device }, ['device']),
   tool('android_install_apk', 'android', 'Install or update a development APK from the selected workspace on a device.', { device, path: relativePath }, ['device', 'path']),
@@ -148,20 +160,21 @@ function createStockMcp({ dataRoot, dialog, requestApproval, isCurrent, searchCa
     await store.update({ values });
     return policy(scope);
   }
-  async function execute(scope, conversationId, name, args, signal) {
+  async function execute(scope, conversationId, name, args, signal, jobs) {
     assertCurrent(scope);
     signal.throwIfAborted();
     const prefs = policy(scope);
     const key = scopeKey(scope);
     const policyAtStart = store.snapshot().values[key];
     const group = catalog.find(t => t.definition.name === name)?.group;
-    function check() {
-      signal.throwIfAborted();
+    function checkPolicy() {
       assertCurrent(scope);
       if (policyAtStart !== store.snapshot().values[key]) throw Error('Permissions or working folder changed. Inspect the new settings.');
       if (!availableTool(prefs, group, name)) throw Error('This tool is disabled for this workspace.');
     }
+    function check() { signal.throwIfAborted(); checkPolicy(); }
     check();
+    if (name === 'command_status') return jobs.read(args.job_id, args.wait_ms ?? 10000, signal);
     if (name === 'get_permissions') {
       const { files, edits, terminal, android, setup, folder, commandFolder, shells, defaultShell } = prefs;
       return { preset: prefs.preset, files, edits, terminal, android, setup, folder, commandFolder, platform: process.platform, shells, defaultShell, adbAvailable: Boolean(prefs.adb),
@@ -189,7 +202,7 @@ function createStockMcp({ dataRoot, dialog, requestApproval, isCurrent, searchCa
     }
     const android = group === 'android';
     const edit = group === 'edits';
-    if (!android && !edit && !['run_command', 'list_directory', 'read_text_file'].includes(name)) throw Error('Unknown workspace tool.');
+    if (!android && !edit && !['run_command', 'list_directory', 'read_text_file', 'search_files'].includes(name)) throw Error('Unknown workspace tool.');
     const terminal = name === 'run_command';
     const command = typeof args.command === 'string' ? args.command.replace(/\r\n/g, '\n') : '';
     const available = shells();
@@ -206,14 +219,17 @@ function createStockMcp({ dataRoot, dialog, requestApproval, isCurrent, searchCa
       const argv = android && await androidArgs(name, args, prefs.folder);
       const trustKey = key + '.trusted';
       const trustedCommands = () => JSON.parse(store.snapshot().values[trustKey] || '[]');
-      const fingerprint = terminal && keepsCommandGrants(prefs.terminal) && createHash('sha256').update(JSON.stringify([prefs.folder, available[shell], shell, command])).digest('hex');
+      const fingerprint = terminal && keepsCommandGrants(prefs.terminal) && createHash('sha256').update(JSON.stringify([prefs.folder, available[shell], shell, command, ...(args.background === true ? ['background'] : [])])).digest('hex');
       const needsCommandGrant = fingerprint && !trustedCommands().includes(fingerprint);
       if (needsCommandGrant && prefs.terminal === 'approved') throw Error('This exact command has no saved approval for this shell and folder. Use a permitted workspace tool or report the limitation.');
       const androidWrite = name === 'android_install_apk' || name === 'android_run_tests';
       if (prefs[group] === 'ask' || needsCommandGrant || (prefs.android === 'inspect' && androidWrite)) {
-        const action = android ? 'Run this Android development command?' : terminal ? 'Run a terminal command as your OS user?' : edit ? 'Allow this workspace edit?' : name === 'list_directory' ? 'Share a directory listing with the agent?' : 'Share this file’s text with the agent?';
+        const action = android ? 'Run this Android development command?' : terminal ? 'Run a terminal command as your OS user?' : edit ? 'Allow this workspace edit?' : name === 'search_files' ? 'Search this folder and share matching lines?' : name === 'list_directory' ? 'Share a directory listing with the agent?' : 'Share this file’s text with the agent?';
         let detail = android ? [prefs.adb, ...argv].map(arg => JSON.stringify(arg)).join(' ') : terminal ? command : args.path;
-        if (edit) detail += name === 'create_directory' ? '\nCreate directory' : (args.expected_sha256 ? '\nReplace file' : '\nCreate file') + '\n\n' + String(args.content ?? '').slice(0, 1500) + (args.content?.length > 1500 ? '\n… (preview truncated)' : '');
+        if (name === 'patch_file') detail += '\nReplace matching lines:\n' + String(args.old_text).slice(0, 1200) + '\nWith:\n' + String(args.new_text).slice(0, 1200);
+        else if (edit) detail += name === 'create_directory' ? '\nCreate directory' : (args.expected_sha256 ? '\nReplace file' : '\nCreate file') + '\n\n' + String(args.content ?? '').slice(0, 1500) + (args.content?.length > 1500 ? '\n… (preview truncated)' : '');
+        if (name === 'search_files') detail = 'Search files under ' + args.path + ' for ' + String(args.query).slice(0, 300);
+        if (terminal && args.background === true) detail += '\nRun in the background for up to 10 minutes.';
         let preview;
         if (terminal) {
           if (prefs.commandPreviews && !command.includes('\n')) preview = `${available[shell]} · ${prefs.folder}\n${command}`;
@@ -244,7 +260,13 @@ function createStockMcp({ dataRoot, dialog, requestApproval, isCurrent, searchCa
         const cwd = await resolveEntry(prefs.commandFolder, '.');
         check();
         const run = prefs.terminal === 'sandbox' ? sandboxShell : runShell;
-        result = await run(available[shell], shell, command, cwd, operation);
+        result = args.background === true
+          ? jobs.start((jobSignal, output) => run(available[shell], shell, command, cwd, jobSignal, 600000, output), checkPolicy)
+          : await run(available[shell], shell, command, cwd, operation);
+      } else if (name === 'patch_file') {
+        result = await patchFile(prefs.folder, args, check);
+      } else if (name === 'search_files') {
+        result = await searchFiles(prefs.folder, args.path, args.query, operation);
       } else if (edit) {
         result = await editEntry(prefs.folder, args.path, name === 'create_directory', args.content, args.expected_sha256, check);
       } else {
@@ -259,7 +281,8 @@ function createStockMcp({ dataRoot, dialog, requestApproval, isCurrent, searchCa
     assertCurrent(scope);
     const token = randomUUID();
     const lease = new AbortController();
-    sessions.set(token, { scope, conversationId, signal: AbortSignal.any([signal, lease.signal]) });
+    const sessionSignal = AbortSignal.any([signal, lease.signal]);
+    sessions.set(token, { scope, conversationId, signal: sessionSignal, jobs: createCommandJobs(sessionSignal) });
     return { server: { id: 'stock', name: 'Workspace tools', url: baseURL + endpoint, headers: { Authorization: 'Bearer ' + token } },
       close: () => { lease.abort(); sessions.delete(token); } };
   }
@@ -273,7 +296,7 @@ function createStockMcp({ dataRoot, dialog, requestApproval, isCurrent, searchCa
       const valid = session && !session.signal.aborted && isCurrent(session.scope);
       const prefs = valid && policy(session.scope);
       const tools = valid ? catalog.filter(t => availableTool(prefs, t.group, t.definition.name)).map(t => t.definition) : [];
-      return await serveLocalMcp(request, response, valid && ((name, args) => execute(session.scope, session.conversationId, name, args, AbortSignal.any([session.signal, client.signal]))),
+      return await serveLocalMcp(request, response, valid && ((name, args) => execute(session.scope, session.conversationId, name, args, AbortSignal.any([session.signal, client.signal]), session.jobs)),
         { serverInfo: { name: 'nextbrowser-workspace-tools', version: '1.0.0' }, instructions: toolInstructions(), tools });
     } finally { response.off('close', disconnect); }
   }

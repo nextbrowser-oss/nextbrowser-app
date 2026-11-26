@@ -2393,7 +2393,7 @@ export const useStore = create<State>((set, get) => {
         ...s.runtime,
         [agentId]: { ...s.runtime[agentId], loggedIn: false },
       } }));
-    } else if (result.code !== 0 && !["max_steps", "no_progress"].includes(result.failure?.code ?? "")) void get().recheckLogin(agentId);
+    } else if (result.code !== 0 && !["max_steps", "no_progress", "verification_pending"].includes(result.failure?.code ?? "")) void get().recheckLogin(agentId);
     const stopped = get().runtime[agentId]?.pendingStop;
     const header = titleHeaders.get(replyId);
     const remaining = header?.read("", true) ?? "";
@@ -2419,6 +2419,10 @@ export const useStore = create<State>((set, get) => {
           if (stopped) {
             status = "cancelled";
             text = text ? `${text}\n[stopped]` : "[stopped]";
+          } else if (isBuiltinAgent(agentId) && result.failure?.code === "verification_pending") {
+            status = "needsAttention";
+            text = capStreamText(stdout).trim();
+            if (result.failure.ref) text += `\n\nRef: ${result.failure.ref}`;
           } else if ((result.code !== 0 || !text) && (
             message.activityLabel === BROWSER_VERIFICATION_ATTENTION ||
             message.toolEvents?.some((event) => needsBrowserVerification(event.detail ?? "")) ||

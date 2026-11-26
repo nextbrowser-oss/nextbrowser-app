@@ -172,7 +172,19 @@ async function connectUserMcpTools(servers, { signal, onStep = () => {}, strict 
       async call(name, args) {
         const route = routes.get(name);
         if (!route) throw new Error('Unknown MCP tool.');
-        try { return toolResultForModel(await route.client.callTool(route.tool.name, args), { vision, limit: 8000 }); }
+        try {
+          const raw = await route.client.callTool(route.tool.name, args);
+          const result = toolResultForModel(raw, { vision, limit: 8000 });
+          if (name.startsWith('workspace_') && !result.isError) {
+            // Preserve the trusted exit status even if long stdout was clipped for the model.
+            const body = raw.content?.find(item => item.type === 'text');
+            try {
+              const { exitCode, status, job_id } = JSON.parse(body.text);
+              result.workspaceReceipt = { exitCode, status, job_id };
+            } catch { /* A missing receipt cannot verify a check. */ }
+          }
+          return result;
+        }
         catch { throw new Error('The MCP tool failed or timed out. Check its connection in Extensions → MCP before retrying.'); }
       },
     };

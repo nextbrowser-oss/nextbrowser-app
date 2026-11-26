@@ -9,6 +9,7 @@ const { ProviderError } = require("./builtin-agent-providers.cjs");
 const { stepLine } = require("./builtin-agent-tools.cjs");
 const harness2 = require("./harness2.cjs");
 const { createClickProgress } = require("./browser-click-progress.cjs");
+const { createCodingVerification } = require("./coding-verification.cjs");
 
 const BUILTIN_AGENT_ID = "nextbrowser";
 const DEFAULT_LIMITS = Object.freeze({
@@ -220,6 +221,8 @@ async function runBuiltinAgent({
     .filter(entry => (entry?.role === "user" || entry?.role === "assistant") && typeof entry.content === "string")
     .map(({ role, content }) => ({ role, content })) : [];
   const request = chatTurn?.request ?? String(prompt ?? "");
+  const verification = tools?.names?.some(name => name.startsWith("workspace_")) ? createCodingVerification(request) : null;
+  let remindedToVerify = false;
   const currentMessage = { role: "user", content: String(prompt || request) };
   const messages = [
     { role: "system", content: harnessEnabled ? systemPrompt + "\n" + harness2.nativeInstructions : systemPrompt },
@@ -288,6 +291,11 @@ async function runBuiltinAgent({
     let planning = Boolean(toolDefinitions && onReport);
     if (planning) update("Planning the task…");
     async function partial(status) {
+      const receipt = verification?.report();
+      if (receipt && !receipt.verified) {
+        update(receipt.text);
+        return ended("verification_pending", { text: receipt.text });
+      }
       let summary = "";
       // A single read-only synthesis can preserve findings. No more actions are allowed here.
       if (onReport && now() < deadline && !signal?.aborted) {
@@ -346,6 +354,18 @@ async function runBuiltinAgent({
           messages.push({ role: "user", content: FINAL_ANSWER_NUDGE });
           continue;
         }
+        const receipt = verification?.report(text);
+        if (receipt && !receipt.verified) {
+          if (!remindedToVerify && !receipt.denied) {
+            remindedToVerify = true;
+            update(receipt.text);
+            messages.push({role:"assistant", content:text || "Checking the verification status."},
+              {role:"user", content:"Nextbrowser verification record:\n" + receipt.text + "\nFinish the requested verification using the available tools. Respect any denial. If blocked, explain the blocker."});
+            continue;
+          }
+          return ended("verification_pending", { text: receipt.text });
+        }
+        if (receipt?.verified) text += "\n\n" + receipt.text;
         if (text && onReport) update("Answer ready");
         return { status: "completed", text, steps };
       }
@@ -452,6 +472,7 @@ async function runBuiltinAgent({
             onStep(`${stepLine(call.name, args)} failed: ${firstLine(reason, 120)}`);
           }
           clickProgress.record(call.name, args, target, result);
+          verification?.record(call.name, args, result);
           if (call.name === "scroll") {
             consecutiveScrolls++;
             unchangedScrolls = content === lastScrollResult ? unchangedScrolls + 1 : 0;
