@@ -9,7 +9,7 @@ import { _electron } from 'playwright-core';
 import transport from '../electron/local-mcp-transport.cjs';
 
 // Real agent loop and MCP transports, isolated desktop profile and local model.
-// Only the model's choices and the native dialog responses are scripted.
+// The local model requests real operations. Approval goes through the chat UI.
 const root = process.cwd();
 const data = await realpath(await mkdtemp(path.join(os.tmpdir(), 'nb-stock-smoke-')));
 const folder = path.join(data, 'approved-folder');
@@ -91,13 +91,13 @@ let app;
 try {
   app = await _electron.launch({ executablePath: createRequire(import.meta.url)('electron'), args: [root, '--user-data-dir=' + path.join(data, 'app')], env });
   page = await app.firstWindow();
-  await app.evaluate(({ dialog }, target) => {
-    globalThis.stockFixturePrompts = [];
+  await app.evaluate(({ dialog, Notification }, target) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] });
-    dialog.showMessageBox = async (_window, options) => {
-      if (options.title !== 'Nextbrowser agent permission') return { response: 0 };
-      globalThis.stockFixturePrompts.push(options.detail);
-      return { response: globalThis.stockFixturePrompts.length === 1 ? 0 : 1 };
+    const show = Notification.prototype.show;
+    Notification.prototype.show = function () {
+      this.once('show', () => { globalThis.stockToastStatus = 'shown'; });
+      this.once('failed', (_event, reason) => { globalThis.stockToastStatus = 'failed: ' + reason; });
+      return show.call(this);
     };
   }, folder);
   const url = pathToFileURL(path.join(root, 'dist/index.html')).href + '?preview=main&tab=mcp';
@@ -114,15 +114,39 @@ try {
     'nextbrowser.builtinAgent': JSON.stringify({ provider: 'custom', model: 'fixture', baseURL: url }),
   } }), 'http://127.0.0.1:' + service.address().port + '/v1');
   const turn = () => page.evaluate(() => window.nextbrowser.invoke('agent_run', { agentId: 'nextbrowser', replyId: crypto.randomUUID(),
-    workspaceId: 'preview-workspace', conversationId: 'stock-qa', browserProfiles: [], stdinText: 'Use the workspace tools.' }));
-  const first = await turn();
+    workspaceId: 'preview-workspace', conversationId: 'preview-conv-2', browserProfiles: [], stdinText: 'Use the workspace tools.' }));
+  await page.keyboard.press('Escape');
+  const card = page.getByRole('region', {name: 'Agent permission request'});
+  const firstTurn = turn();
+  const review = page.getByRole('button', {name: 'Review agent request'});
+  await review.waitFor();
+  assert.equal(await card.count(), 0);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
+  if (process.platform === 'win32') {
+    const status = await app.evaluate(async () => {
+      const until = Date.now() + 3500;
+      while (!globalThis.stockToastStatus && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 100));
+      return globalThis.stockToastStatus || 'delivery not confirmed';
+    });
+    console.log('Windows notification: ' + status);
+  }
+  await app.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.restore(); win.show(); win.focus(); });
+  await review.click();
+  await card.getByText(/rejected\.txt/).waitFor();
+  await card.getByText(folder, {exact: true}).waitFor();
+  assert.equal(await card.locator('pre').textContent(), deniedLine);
+  const cardBox = await card.boundingBox(), composerBox = await page.locator('.chat-composer-dock .composer').boundingBox();
+  assert(cardBox && composerBox && cardBox.y + cardBox.height <= composerBox.y + 1);
+  await card.getByRole('button', {name: 'Deny', exact: true}).click();
+  await card.getByText(/visible\.txt/).waitFor();
+  assert.equal(await card.locator('pre').textContent(), shellLine);
+  await card.getByRole('button', {name: 'Allow once', exact: true}).click();
+  const first = await firstTurn;
   if (error) throw error;
   assert.equal(first.stdout, 'Ready for review', first.stderr);
   await assert.rejects(stat(path.join(folder, 'rejected.txt')), { code: 'ENOENT' });
   assert.equal((await readFile(path.join(folder, 'visible.txt'), 'utf8')).trim(), 'approved');
-  const prompts = await app.evaluate(() => globalThis.stockFixturePrompts);
-  assert.equal(prompts.length, 2);
-  assert(prompts[0].includes(folder) && prompts[0].endsWith(deniedLine) && prompts[1].endsWith(shellLine));
+  await card.waitFor({state:'detached'});
   assert.equal((await page.evaluate(() => window.nextbrowser.invoke('user_mcp_list', { workspaceId: 'preview-workspace' }))).length, 0);
   assert.equal(await modal.getByLabel('Server name').inputValue(), 'Fixture service');
   await modal.getByRole('button', { name: 'Connect & save' }).click();
@@ -130,7 +154,10 @@ try {
   await modal.getByRole('button', { name: 'Permissions', exact: true }).click();
   await modal.getByRole('combobox', { name: 'Terminal permission' }).click();
   await modal.getByRole('option', { name: 'Off', exact: true }).click();
-  const next = await turn();
+  await page.keyboard.press('Escape');
+  const nextTurn = turn();
+  if (process.env.NB_TEST_ANDROID === '1') await card.getByRole('button', {name:'Allow once'}).click();
+  const next = await nextTurn;
   if (error) throw error;
   assert.equal(next.stdout, 'Connected', next.stderr);
   await page.goto(pathToFileURL(path.join(root, 'dist/index.html')).href + '?preview=main');
@@ -141,13 +168,12 @@ try {
   await preset.click();
   await settings.getByRole('option', { name: 'Autonomous', exact: true }).click();
   await settings.getByRole('combobox', { name: 'Workspace edits permission' }).getByText('Allow in selected folder').waitFor();
-  const before = await app.evaluate(() => globalThis.stockFixturePrompts.length);
   autonomousStep = 1;
   const autonomous = await turn();
   if (error) throw error;
   assert.equal(autonomous.stdout, 'Created demo/example.txt', autonomous.stderr);
   assert.equal(await readFile(path.join(folder, 'demo/example.txt'), 'utf8'), 'autonomous workspace');
-  assert.equal(await app.evaluate(() => globalThis.stockFixturePrompts.length), before);
+  assert.equal(await card.count(), 0);
   console.log('Settings → Agent: autonomous mode created demo/example.txt through the agent without a dialog.');
   console.log('Passed desktop permissions, denied and approved ' + shell + ', scoped reads, reviewed MCP setup and next-turn tools.' +
     (androidChecked ? ' Verified android_devices with real adb.' : ''));

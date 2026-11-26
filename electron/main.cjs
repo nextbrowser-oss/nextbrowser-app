@@ -13,9 +13,14 @@ function desktopAgentContext(agent, sender, workspaceId, plain = false) {
 }
 const stockMcp = require('./stock-mcp.cjs');
 let stockHost;
+const currentAgentScope = scope => !!scope && !scope.window.isDestroyed() && miniApps().agentScope(scope.window.webContents, scope.workspaceId) === scope;
+let permissionRequests;
+function agentPermissions() {
+  return permissionRequests ??= require('./agent-permission-requests.cjs').createPermissionRequests({ Notification, isCurrent: currentAgentScope });
+}
 function stockTools() {
   return stockHost ??= stockMcp.createStockMcp({ dataRoot: dataDir(), dialog,
-    isCurrent: scope => !scope.window.isDestroyed() && miniApps().agentScope(scope.window.webContents, scope.workspaceId) === scope,
+    isCurrent: currentAgentScope, requestApproval: agentPermissions().request,
     searchCatalog: search => searchCatalog({ search }, (...request) => systemProxy.fetch(...request)) });
 }
 let miniAppsHost;
@@ -77,7 +82,7 @@ function codexUserMcp(servers) {
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
-const { app, BrowserWindow, WebContentsView, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net } = require("electron");
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net, Notification } = require("electron");
 const { buildSupportDiagnostics } = require('./support-diagnostics.cjs');
 if (process.platform === "win32") {
   // A native Live window sits beneath the shaped Electron host. The Windows
@@ -144,6 +149,7 @@ const isDevBuild = !app.isPackaged || isDevPackage;
 const existingUserDataPath = app.getPath("userData");
 const existingSessionDataPath = app.getPath("sessionData");
 app.setName(isDevBuild ? "Nextbrowser DEV" : "Nextbrowser");
+if (process.platform === 'win32') app.setAppUserModelId(isDevBuild ? 'com.nextbrowser.desktop.dev' : 'com.nextbrowser.desktop');
 app.setPath("userData", existingUserDataPath);
 app.setPath("sessionData", existingSessionDataPath);
 const { devDataPaths } = require("./dev-data-root.cjs");
@@ -598,7 +604,8 @@ async function runBuiltinAgent({ replyId, prompt, chatTurn, plain, run, mcpEnv, 
   try {
     let mcp;
     const enableTools = !plain && !isStatusFollowUp(chatTurn?.request);
-    const desktopScope = !plain && agentControlArtifactScopes.get(mcpEnv?.NEXTBROWSER_CONTROL_TOKEN)?.miniApps;
+    const artifactScope = !plain ? agentControlArtifactScopes.get(mcpEnv?.NEXTBROWSER_CONTROL_TOKEN) : undefined;
+    const desktopScope = artifactScope?.miniApps;
     if (enableTools) {
       // The CLI install has its own status and reports; here it only decides
       // whether the agent gets browser tools.
@@ -624,7 +631,7 @@ async function runBuiltinAgent({ replyId, prompt, chatTurn, plain, run, mcpEnv, 
       }
     }
     const managed = await managedAgentEndpoint(settings.provider);
-    if (desktopScope) stockSession = stockTools().open(desktopScope, mcpEnv.NEXTBROWSER_CONTROL_URL, controller.signal);
+    if (desktopScope) stockSession = stockTools().open(desktopScope, mcpEnv.NEXTBROWSER_CONTROL_URL, controller.signal, artifactScope.conversationId);
     const result = await runBuiltinAgentTurn({
       settings,
       useHarness2: run === "chat" && desktopSettings.effective.harness2Recovery,
@@ -4182,6 +4189,8 @@ if (!gotLock) {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!chromeWindows.has(window) || event.sender !== window.webContents || event.senderFrame !== event.sender.mainFrame) throw Error('Permissions require the main desktop window.');
         const scope = miniApps().agentScope(event.sender, args?.workspaceId);
+        if (command === 'stock_mcp_pending') return agentPermissions().get(scope);
+        if (command === 'stock_mcp_answer') return agentPermissions().answer(scope, args);
         return stockTools().settings(scope, command, args);
       }
       if ((command === 'agent_run' || command === 'terminal_start') && event.senderFrame !== event.sender.mainFrame) throw Error('Agent sessions require the desktop window.');

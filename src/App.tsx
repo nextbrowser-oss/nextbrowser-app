@@ -1,5 +1,6 @@
 import { AccountProfileView } from "./components/AccountProfileView";
-import { glassSurfaceClassName, IconButton, Tooltip } from "./shared/ui";
+import { Button, glassSurfaceClassName, IconButton, Tooltip } from "./shared/ui";
+import { useAgentPermission } from "./components/AgentPermissionCard";
 import { addPendingRuntimeInstall, downloadableBrowsers, runtimeInstalling } from "./lib/settingsUpdates";
 import { RuntimeInstallationProgress } from "./components/RuntimeInstallationProgress";
 import { BrowserRuntimeUpdatePrompt, ClawbrowserCloseProfilesPrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
@@ -925,6 +926,16 @@ export function App() {
       }
     });
   }, [miniAppOwner, activeWorkspaceId, setTab]);
+  const openPermissionChat = useCallback((id: string) => {
+    const state = useStore.getState();
+    if (!state.conversations.some(conv => conv.id === id && (!conv.workspaceId || conv.workspaceId === state.activeWorkspaceId))) return;
+    setSettingsOpen(false);
+    setFeedbackOpen(false);
+    state.selectConversation(id);
+    state.setTab('chat');
+  }, []);
+  const permission = useAgentPermission(miniAppOwner, activeWorkspaceId, openPermissionChat);
+  const selectedConversation = useStore(s => s.activeConversation()?.id);
   const liveSession = useStore(s => s.liveSession);
   const openLiveSession = useStore(s => s.openLiveSession);
   const showLiveOverview = useStore(s => s.showLiveOverview);
@@ -1618,6 +1629,8 @@ export function App() {
   }} /> : null;
 
   const titlebarActions = <>
+    {permission && (tab !== 'chat' || selectedConversation !== permission.conversationId || settingsOpen || utilityDialog || feedbackOpen) &&
+      <TitlebarActions placement="workspace"><Button onClick={() => openPermissionChat(permission.conversationId)}>Review agent request</Button></TitlebarActions>}
     {feedbackAvailable && <TitlebarActions placement="workspace"><FeedbackButton onClick={() => setFeedbackOpen(true)} /></TitlebarActions>}
     <TitlebarActions>
       <CommunityControls />
@@ -1731,7 +1744,7 @@ export function App() {
               if (browserOpen) setLiveControlsOpen(false);
               setHiddenBrowser(browserOpen ? liveSession : undefined);
             }}
-            chat={<ChatView headerAccessory={backgroundTaskPills} showSessionNavigation={tab === "chat" && !settingsOpen} />}>
+            chat={<ChatView permission={permission} headerAccessory={backgroundTaskPills} showSessionNavigation={tab === "chat" && !settingsOpen} />}>
             {liveWorkspace && !focusedLive && <LiveSessionsGrid key={activeWorkspaceId} sessions={liveSessions} onOpen={openLiveSession} />}
             <div className={"persistent-tab-panel" + (focusedLive ? "" : " is-hidden")}>
               <LiveView active={focusedLive} requestedKey={liveKey ?? ""} profileOptions={liveSessions}

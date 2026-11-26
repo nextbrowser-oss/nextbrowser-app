@@ -10,6 +10,7 @@ import type { ChatAttachment, ChatMessage } from "../types";
 import { filePathForFile, invoke } from "../electronBridge";
 import { AGENTS, BUILTIN_AGENT_ID, agentById, agentInvocation, isBuiltinAgent, type AgentSpec } from "../agents";
 import { AgentModelPicker } from "./AgentModelPicker";
+import { AgentPermissionCard, type AgentPermissionRequest } from "./AgentPermissionCard";
 import { ComposerSkinPicker, ComposerSurface, useComposerSkin } from "./composer-skins/ComposerSkins";
 import { PanelWidgets } from "./PanelWidgets";
 import { Grid2X2, Check as GridCheck } from "lucide-react";
@@ -106,7 +107,7 @@ function errorSummary(text: string): string {
 }
 
 
-export function ChatView({ headerAccessory, showSessionNavigation }: { headerAccessory?: ReactNode; showSessionNavigation: boolean }) {
+export function ChatView({ headerAccessory, showSessionNavigation, permission }: { headerAccessory?: ReactNode; showSessionNavigation: boolean; permission?: AgentPermissionRequest | null }) {
   const s = useStore();
   const agentId = s.agentId;
   const builtinAgent = isBuiltinAgent(agentId);
@@ -578,6 +579,7 @@ export function ChatView({ headerAccessory, showSessionNavigation }: { headerAcc
                 <div className="chat-action-error error small" role="alert">{actionError}</div>
               )}
               {commandNotice && <div className="chat-command-notice" role="status">{commandNotice}</div>}
+              {permission && permission.conversationId === conv?.id && <AgentPermissionCard key={permission.id} request={permission} />}
               <ComposerSurface skin={skin}>
                 {activeCommand && <CommandList id={commandMenuId} label="Agent commands" activeId={activeCommand.name} anchor={composerRef.current?.closest<HTMLElement>(".composer")}
                   options={commandMatches.map(command => ({ id: command.name, title: "/" + command.name, description: command.description }))}

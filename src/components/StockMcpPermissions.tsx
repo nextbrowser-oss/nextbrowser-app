@@ -3,7 +3,7 @@ import { Button, Select } from '../shared/ui';
 import { invoke } from '../electronBridge';
 
 type Group = 'terminal' | 'android' | 'files' | 'edits' | 'setup';
-type Permissions = Record<Group, string> & { preset: string; trustedCount: number; folder: string; shells: string[]; preferredShell: string; defaultShell?: string; adb: string | null };
+type Permissions = Record<Group, string> & { preset: string; trustedCount: number; commandPreviews: boolean; folder: string; shells: string[]; preferredShell: string; defaultShell?: string; adb: string | null };
 const shellNames: Record<string, string> = { bash: 'Bash', powershell: 'PowerShell' };
 const labels: Record<string, string> = { ask: 'Ask every time', off: 'Off', allow: 'Allow in selected folder', review: 'Review before connecting', trusted: 'Remember approved commands', inspect: 'Allow device inspection' };
 const groups: { id: Group; title: string; description: string; modes: string[] }[] = [
@@ -23,7 +23,7 @@ export function StockMcpPermissions({ workspaceId }: { workspaceId: string }) {
       .catch(e => { if (current) setError(String(e.message || e)); });
     return () => { current = false; };
   }, [workspaceId]);
-  async function change(command: string, args: Record<string, string> = {}) {
+  async function change(command: string, args: Record<string, string | boolean> = {}) {
     setBusy(true); setError('');
     try { setSettings(await invoke<Permissions>(command, { workspaceId, ...args })); }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not save permissions.'); }
@@ -58,6 +58,11 @@ export function StockMcpPermissions({ workspaceId }: { workspaceId: string }) {
             ...settings.shells.map(value => ({ value, label: shellNames[value] })),
             ...(settings.preferredShell !== 'auto' && !settings.shells.includes(settings.preferredShell)
               ? [{ value: settings.preferredShell, label: shellNames[settings.preferredShell] + ' · Unavailable' }] : [])]} /></div>}
+      {group.id === 'terminal' && settings.terminal !== 'off' && <div className="stock-mcp-permission">
+        <div><strong>Command notifications</strong><p className="muted small">Previews show short commands in system notifications and let you approve them there.</p></div>
+        <Select label="Command notifications" value={settings.commandPreviews ? 'preview' : 'private'} disabled={busy}
+          onChange={value => void change('stock_mcp_command_previews', { enabled: value === 'preview' })}
+          options={[{ value: 'private', label: 'Review in chat' }, { value: 'preview', label: 'Show command preview' }]} /></div>}
       {group.id === 'terminal' && settings.terminal === 'trusted' && <div className="stock-mcp-permission">
         <span className="muted small">Clear approvals to review commands again.</span>
         <Button disabled={busy} onClick={() => void change('stock_mcp_forget_commands')}>Forget commands</Button></div>}

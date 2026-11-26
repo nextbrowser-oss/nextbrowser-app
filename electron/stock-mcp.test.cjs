@@ -8,15 +8,15 @@ const { createStockMcp } = require('./stock-mcp.cjs');
 const { readEntry, runShell, shells } = require('./stock-mcp-operations.cjs');
 const { createHttpMcpClient } = require('./mcp-http-client.cjs');
 
-async function fixture(t, confirm = async () => ({ response: 0 }), options = {}) {
+async function fixture(t, requestApproval = async () => 'deny', options = {}) {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'nb-stock-test-'));
   const scope = { owner: 'test', workspaceId: 'work', shellId: 42, window: { webContents: { send() {} } } };
   let current = scope;
-  const host = createStockMcp({ dataRoot, dialog: { showMessageBox: confirm, showOpenDialog: async () => ({filePaths: [dataRoot]}) }, isCurrent: candidate => current === candidate, ...options });
+  const host = createStockMcp({ dataRoot, requestApproval, dialog: { showOpenDialog: async () => ({filePaths: [dataRoot]}) }, isCurrent: candidate => current === candidate, ...options });
   const server = http.createServer((req, res) => host.serve(req, res));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const controller = new AbortController();
-  const session = host.open(scope, 'http://127.0.0.1:' + server.address().port, controller.signal);
+  const session = host.open(scope, 'http://127.0.0.1:' + server.address().port, controller.signal, 'chat-1');
   const client = createHttpMcpClient(session.server);
   t.after(async () => {
     controller.abort(); client.close(); session.close(); server.closeAllConnections();
@@ -63,15 +63,16 @@ test('only the current authenticated agent session can discover stock tools; dis
 test('a pending approval becomes unusable when the user changes permissions', async t => {
   let shown, decide;
   const waiting = new Promise(resolve => { shown = resolve; });
-  const { scope, host, client } = await fixture(t, (_window, options) => {
-    assert.equal(options.defaultId, 0);
+  const { scope, host, client } = await fixture(t, (_scope, conversationId, prompt) => {
+    assert.equal(conversationId, 'chat-1');
+    assert.equal(prompt.canRemember, false);
     shown();
     return new Promise(resolve => { decide = resolve; });
   });
   const call = client.callTool('list_directory', { path: '.' });
   await waiting;
   await host.settings(scope, 'stock_mcp_set', { group: 'files', mode: 'off' });
-  decide({ response: 1 });
+  decide('once');
   assert.equal((await call).isError, true);
 });
 test('Autonomous edits create a folder and version-checked files without prompting, only inside the workspace', async t => {
@@ -99,18 +100,18 @@ test('Autonomous edits create a folder and version-checked files without prompti
   assert.equal((await edit('write_text_file', file)).isError, true);
 });
 test('remembering an exact shell command survives restart, respects changes and can be revoked', async t => {
-  let prompts = 0, response = 2;
-  const { scope, client, host, dataRoot } = await fixture(t, (_win, options) => {
+  let prompts = 0, response = 'remember';
+  const { scope, client, host, dataRoot } = await fixture(t, (_scope, _conversationId, prompt) => {
     prompts++;
-    assert.deepEqual(options.buttons, ['Deny', 'Allow once', 'Remember this exact command']);
-    return { response };
+    assert.equal(prompt.canRemember, true);
+    return response;
   });
   const { defaultShell } = await host.settings(scope, 'stock_mcp_preset', { preset: 'autonomous' });
   assert.ok(defaultShell);
   const command = defaultShell === 'bash' ? 'echo test' : 'Write-Output test';
   const run = line => client.callTool('run_command', { command: line });
   assert.equal(JSON.parse((await run(command)).content[0].text).output.trim(), 'test');
-  response = 0;
+  response = 'deny';
   assert.equal(JSON.parse((await run(command)).content[0].text).output.trim(), 'test');
   assert.equal(prompts, 1);
   const reopened = createStockMcp({ dataRoot, isCurrent: () => true });
@@ -120,10 +121,10 @@ test('remembering an exact shell command survives restart, respects changes and 
   assert.equal(prompts, 2);
   await host.settings(scope, 'stock_mcp_forget_commands');
   assert.equal((await run(command)).isError, true);
-  response = 2;
+  response = 'remember';
   assert.equal(JSON.parse((await run(command)).content[0].text).exitCode, 0);
   assert.equal((await host.settings(scope, 'stock_mcp_folder')).trustedCount, 0);
-  response = 0;
+  response = 'deny';
   assert.equal((await run(command)).isError, true);
 });
 test('permission choices persist only for the selected account and workspace', async t => {
@@ -139,7 +140,7 @@ test('permission choices persist only for the selected account and workspace', a
   }
 });
 test('a workspace can run a command using the default shell and change its preference', async t => {
-  const { host, scope, client } = await fixture(t, async () => ({ response: 1 }));
+  const { host, scope, client } = await fixture(t, async () => 'once');
   const available = Object.keys(shells());
   const prefs = await host.settings(scope, 'stock_mcp_get');
   assert.equal(prefs.defaultShell, available.includes('bash') ? 'bash' : available[0]);
@@ -150,10 +151,28 @@ test('a workspace can run a command using the default shell and change its prefe
     assert.equal(JSON.parse(result.content[0].text).output.trim(), shell + '-ok');
   }
 });
+test('notification command previews are opt-in per workspace and multiline commands require review', async t => {
+  const prompts = [];
+  const { host, scope, client } = await fixture(t, (_scope, _chat, prompt) => { prompts.push(prompt); return 'deny'; });
+  const run = command => client.callTool('run_command', { command });
+  await run('echo hello');
+  assert.equal(prompts.at(-1).notificationDetail, undefined);
+  await host.settings(scope, 'stock_mcp_folder', {});
+  await host.settings(scope, 'stock_mcp_command_previews', { enabled: true });
+  await run('echo test');
+  const { shell, folder, detail, notificationDetail } = prompts.at(-1);
+  const summary = shell + ' · ' + folder + '\n' + detail;
+  assert.equal(notificationDetail, summary.length <= 100 ? summary : undefined);
+  await run('echo one\necho two');
+  assert.equal(prompts.at(-1).notificationDetail, undefined);
+  await host.settings(scope, 'stock_mcp_command_previews', { enabled: false });
+  await run('echo test');
+  assert.equal(prompts.at(-1).notificationDetail, undefined);
+});
 test('Android uses the selected SDK and explicit device, and honours workspace permissions', async t => {
   const calls = [];
   let approve = true;
-  const { host, scope, client, dataRoot } = await fixture(t, async () => ({ response: approve ? 1 : 0 }), {
+  const { host, scope, client, dataRoot } = await fixture(t, async () => approve ? 'once' : 'deny', {
     runAndroid: async (file, argv) => { calls.push({file, argv}); return { exitCode: 0, output: 'fixture', truncated: false }; },
   });
   const adb = path.join(dataRoot, process.platform === 'win32' ? 'adb.exe' : 'adb');

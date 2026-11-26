@@ -57,7 +57,7 @@ async function androidArgs(name, args, folder) {
   if (name !== 'android_run_tests' || typeof args.runner !== 'string' || !/^[A-Za-z][\w.]*\/[A-Za-z.][\w.]*$/.test(args.runner)) throw Error('Enter a package/runner instrumentation component.');
   return [...target, 'shell', 'am', 'instrument', '-w', '-r', args.runner];
 }
-function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid = runProgram }) {
+function createStockMcp({ dataRoot, dialog, requestApproval, isCurrent, searchCatalog, runAndroid = runProgram }) {
   const store = createAppSettings({ file: path.join(dataRoot, 'stock-mcp-permissions.json') });
   const sessions = new Map(), pending = new Set();
   const scopeKey = scope => createHash('sha256').update(JSON.stringify([scope.owner, scope.workspaceId])).digest('hex');
@@ -80,7 +80,7 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     const preferredShell = saved.preferredShell || 'auto';
     const preset = Object.keys(presets).find(name => Object.keys(modes).every(group => effective[group] === presets[name][group])) || 'custom';
     const trustedCount = JSON.parse(store.snapshot().values[key + '.trusted'] || '[]').length;
-    return { ...effective, preset, trustedCount, folder: saved.folder || defaultFolder(key), customFolder: Boolean(saved.folder),
+    return { ...effective, preset, trustedCount, commandPreviews: saved.commandPreviews === true, folder: saved.folder || defaultFolder(key), customFolder: Boolean(saved.folder),
       revision: saved.revision || '', shells: available, preferredShell,
       defaultShell: preferredShell === 'auto' ? available[0] : available.find(shell => shell === preferredShell),
       adb: adbExecutable(saved.androidSdkFolder) || null };
@@ -98,6 +98,9 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     } else if (command === 'stock_mcp_preset') {
       if (!Object.hasOwn(presets, args.preset)) throw Error('Unknown permissions preset.');
       patch = presets[args.preset];
+    } else if (command === 'stock_mcp_command_previews') {
+      if (typeof args.enabled !== 'boolean') throw Error('Invalid command preview setting.');
+      patch = { commandPreviews: args.enabled };
     } else if (command === 'stock_mcp_forget_commands') {
       patch = {};
     } else if (command === 'stock_mcp_shell') {
@@ -122,7 +125,7 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
     await store.update({ values });
     return policy(scope);
   }
-  async function execute(scope, name, args, signal) {
+  async function execute(scope, conversationId, name, args, signal) {
     assertCurrent(scope);
     signal.throwIfAborted();
     const prefs = policy(scope);
@@ -182,16 +185,22 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
       const androidWrite = name === 'android_install_apk' || name === 'android_run_tests';
       if (prefs[group] === 'ask' || (fingerprint && !trustedCommands().includes(fingerprint)) || (prefs.android === 'inspect' && androidWrite)) {
         const action = android ? 'Run this Android development command?' : terminal ? 'Run a terminal command as your OS user?' : edit ? 'Allow this workspace edit?' : name === 'list_directory' ? 'Share a directory listing with the agent?' : 'Share this file’s text with the agent?';
-        let detail = android ? [prefs.adb, ...argv].map(arg => JSON.stringify(arg)).join(' ')
-          : terminal ? `Shell: ${available[shell]}\nWorking folder: ${prefs.folder}\n\n${command}` : `Working folder: ${prefs.folder}\nRelative path: ${args.path}`;
+        let detail = android ? [prefs.adb, ...argv].map(arg => JSON.stringify(arg)).join(' ') : terminal ? command : args.path;
         if (edit) detail += name === 'create_directory' ? '\nCreate directory' : (args.expected_sha256 ? '\nReplace file' : '\nCreate file') + '\n\n' + String(args.content ?? '').slice(0, 1500) + (args.content?.length > 1500 ? '\n… (preview truncated)' : '');
-        const answer = await dialog.showMessageBox(scope.window, { type: 'question', title: 'Nextbrowser agent permission', message: action, detail,
-          buttons: fingerprint ? ['Deny', 'Allow once', 'Remember this exact command'] : ['Deny', 'Allow once'], defaultId: 0, cancelId: 0, noLink: true, signal: operation });
-        if (answer.response === 2 && fingerprint) {
+        let preview;
+        if (terminal) {
+          if (prefs.commandPreviews && !command.includes('\n')) preview = `${available[shell]} · ${prefs.folder}\n${command}`;
+        } else if (!edit) {
+          preview = android ? detail : path.resolve(prefs.folder, args.path);
+        }
+        const notificationDetail = preview && preview.length <= 100 ? preview : undefined;
+        const answer = await requestApproval(scope, conversationId, { title: action, detail, folder: prefs.folder,
+          shell: terminal ? available[shell] : undefined, canRemember: Boolean(fingerprint), notificationDetail }, operation);
+        if (answer === 'remember' && fingerprint) {
           operation.throwIfAborted();
           check();
           await store.update({ values: { [trustKey]: JSON.stringify([...new Set([...trustedCommands(), fingerprint])].slice(-256)) } });
-        } else if (answer.response !== 1) throw Error('The user denied this request. Do not retry it.');
+        } else if (answer !== 'once') throw Error('The user denied this request. Do not retry it.');
       }
       operation.throwIfAborted();
       check();
@@ -217,11 +226,11 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
       return result;
     } finally { clearInterval(poll); pending.delete(scope.shellId); }
   }
-  function open(scope, baseURL, signal) {
+  function open(scope, baseURL, signal, conversationId) {
     assertCurrent(scope);
     const token = randomUUID();
     const lease = new AbortController();
-    sessions.set(token, { scope, signal: AbortSignal.any([signal, lease.signal]) });
+    sessions.set(token, { scope, conversationId, signal: AbortSignal.any([signal, lease.signal]) });
     return { server: { id: 'stock', name: 'Workspace tools', url: baseURL + endpoint, headers: { Authorization: 'Bearer ' + token } },
       close: () => { lease.abort(); sessions.delete(token); } };
   }
@@ -235,7 +244,7 @@ function createStockMcp({ dataRoot, dialog, isCurrent, searchCatalog, runAndroid
       const valid = session && !session.signal.aborted && isCurrent(session.scope);
       const prefs = valid && policy(session.scope);
       const tools = valid ? catalog.filter(t => !t.group || prefs[t.group] !== 'off').map(t => t.definition) : [];
-      return await serveLocalMcp(request, response, valid && ((name, args) => execute(session.scope, name, args, AbortSignal.any([session.signal, client.signal]))),
+      return await serveLocalMcp(request, response, valid && ((name, args) => execute(session.scope, session.conversationId, name, args, AbortSignal.any([session.signal, client.signal]))),
         { serverInfo: { name: 'nextbrowser-workspace-tools', version: '1.0.0' }, instructions: toolInstructions(), tools });
     } finally { response.off('close', disconnect); }
   }
