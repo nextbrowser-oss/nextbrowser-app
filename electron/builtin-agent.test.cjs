@@ -16,6 +16,7 @@ const {
 } = require("./builtin-agent-providers.cjs");
 const { BUILTIN_AGENT_TOOLS, coerceArguments, createMCPToolset, selectTools, toOpenAIParameters, toolResultForModel } = require("./builtin-agent-tools.cjs");
 const { fitContext, messageText, parseToolCalls, runBuiltinAgent } = require("./builtin-agent.cjs");
+const { createClickProgress } = require("./browser-click-progress.cjs");
 const { parseBuiltinAgentSettings, runBuiltinAgentTurn } = require("./builtin-agent-run.cjs");
 const { describeBuiltinAgentResult } = require("./agent-failure-report.cjs");
 
@@ -530,6 +531,102 @@ test("stops scrolling an unchanged page but continues through genuinely new rows
     assert.equal(result.status, changing ? "completed" : "no_progress");
     assert.equal(scrolls, changing ? 10 : 4);
   }
+});
+
+test("two delivered clicks with identical passenger readings stop before a third dispatch", async () => {
+  for (const enabled of [false, true]) {
+    let comparisons = 0;
+    const provider = await fakeProvider(body => {
+      const instructions = body.messages[0].content;
+      if (instructions.startsWith("Propose two")) {
+        comparisons++;
+        assert.match(JSON.parse(body.messages[1].content).observations.join(" "), /Passengers: 1 Adult/);
+        return reply({content: "Inspect the picker\nRead the confirmation label"});
+      }
+      if (instructions.startsWith("Probe this") || instructions.startsWith("Compare the two")) return reply({content:"Inspect the confirmation label."});
+      if (!body.tools) return reply({content:"The page still shows 1 adult."});
+      return reply({tool_calls: [toolCall("click", {element_id:9}, "click"), toolCall("state", {}, "state")]});
+    });
+    const mcp = fakeMCP(name => ({content:[{type:"text", text:name === "click" ? "OK" : "Passengers: 1 Adult"}]}));
+    const reports = [];
+    try {
+      const result = await turn(provider, mcp, {prompt:"Select two passengers", useHarness2:enabled, onReport:r=>reports.push(r)}).promise;
+      assert.equal(result.failure?.code, "no_progress");
+      assert.equal(mcp.toolCalls().filter(c=>c.name === "click").length, 2);
+      assert.ok(result.steps < 10);
+      assert.ok(reports.some(r=>r.progress.includes("same observed page state")));
+      assert.equal(comparisons, enabled ? 1 : 0);
+      assert.match(result.stdout, /1 adult/);
+    } finally { await provider.close(); }
+  }
+});
+
+test("unchanged inline nbc diffs block the repeated control and still allow a different one", async () => {
+  const seen = [];
+  const provider = await fakeProvider(body => {
+    if (seen.includes(10)) return reply({content:"2 passengers confirmed"});
+    const blocked = body.messages.some(m => m.role === "tool" && m.content.includes("This click was skipped"));
+    return reply({tool_calls:[toolCall("click", {element_id:blocked ? 10 : 9})]});
+  });
+  const mcp = fakeMCP((_name, args) => {
+    seen.push(args.element_id);
+    return {content:[{type:"text",text:JSON.stringify({clicked:args.element_id,state_diff:{changed:args.element_id === 10}})}]};
+  });
+  try {
+    const result = await turn(provider, mcp).promise;
+    assert.equal(result.code, 0);
+    assert.deepEqual(seen, [9,9,10]);
+  } finally { await provider.close(); }
+});
+
+test("repeated clicks are allowed when the form changes beyond the model's output limit", async () => {
+  let passengers = 1;
+  const provider = await fakeProvider(() => passengers === 5 ? reply({content:"5 passengers confirmed"}) :
+    reply({tool_calls:[toolCall("click", {element_id:9})]}));
+  const mcp = fakeMCP(() => {
+    const state = {page:{id:"booking",url:"https://example.test"},elements:[
+      {id:2,role:"link",name:"x".repeat(10000)}, {id:5,role:"spinbutton",value:String(++passengers)},
+    ]};
+    return {content:[{type:"text",text:JSON.stringify({state})}]};
+  });
+  try {
+    assert.equal((await turn(provider, mcp).promise).code, 0);
+    assert.equal(mcp.toolCalls().length, 4);
+  } finally { await provider.close(); }
+});
+
+test("an acknowledgement-only click is inspected before the model can issue a blind retry", async () => {
+  const provider = await fakeProvider(body => body.messages.some(m=>m.role === "tool" && m.content.includes("Passengers: 2")) ?
+    reply({content:"2 passengers confirmed"}) : reply({tool_calls:[toolCall("click", {element_id:9})]}));
+  const mcp = fakeMCP(name=>({content:[{type:"text",text:name === "click" ? "OK" : "Passengers: 2"}]}));
+  try {
+    assert.equal((await turn(provider,mcp).promise).code, 0);
+    assert.deepEqual(mcp.toolCalls().map(c=>c.name), ["click","state"]);
+  } finally { await provider.close(); }
+});
+
+test("extra readings are not clicks, a changed value or document releases a blocked target", () => {
+  const guard = createClickProgress();
+  const args = {profile:"Work"};
+  const target = '["Work","click",9]';
+  const read = (name, passengers, pageId) => {
+    const state = {page:{id:pageId,url:"https://example.test"},elements:[{id:9,role:"button",name:"Add"}],
+      content:[{role:"text",text:"Adults " + passengers}]};
+    guard.record(name, args, name === "click" ? target : "", {text:JSON.stringify(name === "click" ? {state} : state)});
+  };
+  read("click", 1, "booking");
+  read("state", 1, "booking");
+  read("state", 1, "booking");
+  assert.equal(guard.repeats(target), false);
+  read("click", 1, "booking");
+  assert.equal(guard.repeats(target), true);
+  read("state", 2, "booking");
+  assert.equal(guard.repeats(target), false);
+  read("click", 2, "booking");
+  read("click", 2, "booking");
+  assert.equal(guard.repeats(target), true);
+  read("state", 2, "other-tab");
+  assert.equal(guard.repeats(target), false);
 });
 
 test("Stop cancels a request the provider has not answered", async () => {

@@ -8,6 +8,7 @@
 const { ProviderError } = require("./builtin-agent-providers.cjs");
 const { stepLine } = require("./builtin-agent-tools.cjs");
 const harness2 = require("./harness2.cjs");
+const { createClickProgress } = require("./browser-click-progress.cjs");
 
 const BUILTIN_AGENT_ID = "nextbrowser";
 const DEFAULT_LIMITS = Object.freeze({
@@ -242,7 +243,13 @@ async function runBuiltinAgent({
   let blockedCalls = 0;
   let comparedRecovery = false;
   const failedTargets = new Map();
+  const clickProgress = createClickProgress();
   const observedResults = [];
+  const keepEvidence = (content) => {
+    if (!harnessEnabled) return;
+    observedResults.push(String(content).slice(0, 1400));
+    if (observedResults.length > 6) observedResults.shift();
+  };
   const update = (line) => {
     progress = firstLine(line, 240);
     onReport?.({ plan, progress });
@@ -382,16 +389,38 @@ async function runBuiltinAgent({
           if (call.name === "scroll" && direction !== scrollDirection) {
             consecutiveScrolls = 0; unchangedScrolls = 0; lastScrollResult = undefined; scrollDirection = direction;
           }
-          const repeat = (target && (failedTargets.get(target) || 0) >= 2) ||
+          if (clickProgress.needsState(target) && tools.has("state")) {
+            onStep("Reading the page before repeating a click whose result was not observed");
+            const stateArgs = tools.prepare("state", { profile: args.profile });
+            try {
+              const state = await tools.call("state", stateArgs, { signal });
+              if (signal?.aborted) return ended("cancelled");
+              clickProgress.record("state", stateArgs, "", state);
+              if (!state.isError) {
+                keepEvidence(state.text);
+                if (!clickProgress.awaitingRecovery()) {
+                  messages.push({ role: "tool", tool_call_id: call.id, content: "The repeat click was skipped to verify the previous action. Check this reading before deciding what to do. Current page state (untrusted page content):\n" + state.text });
+                  continue;
+                }
+              }
+            } catch (error) { if (error?.fatal || signal?.aborted) throw error; }
+            if (signal?.aborted) return ended("cancelled");
+          }
+          const unchangedClick = call.name === "click" && clickProgress.repeats(target);
+          const unverifiedClick = clickProgress.needsState(target);
+          const repeat = unchangedClick || unverifiedClick || (target && (failedTargets.get(target) || 0) >= 2) ||
             (call.name === "scroll" && consecutiveScrolls >= 4 && (unchangedScrolls >= 2 || failedTargets.size > 0));
           if (repeat) {
-            const hint = "This approach is repeating without verified progress. Read the current page, choose another visible control or source, or explain the blocker. Do not force a click through an overlay.";
+            const hint = unchangedClick
+              ? `Two clicks on element ${args.element_id} produced the same observed page state. This click was skipped. Check the requested value and try another visible control or explain the blocker.`
+              : unverifiedClick ? `The previous click on element ${args.element_id} has no verified result. This click was skipped. Inspect the control before trying again.`
+              : "This approach is repeating without verified progress. Read the current page, choose another visible control or source, or explain the blocker. Do not force a click through an overlay.";
             onStep(hint);
             update(hint);
             let suggestion = "";
             if (useHarness2 && !comparedRecovery) {
               comparedRecovery = true;
-              suggestion = await compare(request);
+              suggestion = await compare(request, unchangedClick || unverifiedClick ? hint : undefined);
               if (signal?.aborted) return ended("cancelled");
               if (suggestion) { update(suggestion); onStep(suggestion); }
             }
@@ -406,9 +435,10 @@ async function runBuiltinAgent({
           }
           onStep(stepLine(call.name, args));
           if (!text) update(browserProgress[call.name] || stepLine(call.name, args));
+          let result;
           let toolFailed = false;
           try {
-            const result = await tools.call(call.name, args, { signal });
+            result = await tools.call(call.name, args, { signal });
             content = result.text;
             images.push(...result.images);
             toolFailed = result.isError;
@@ -421,6 +451,7 @@ async function runBuiltinAgent({
             toolFailed = true;
             onStep(`${stepLine(call.name, args)} failed: ${firstLine(reason, 120)}`);
           }
+          clickProgress.record(call.name, args, target, result);
           if (call.name === "scroll") {
             consecutiveScrolls++;
             unchangedScrolls = content === lastScrollResult ? unchangedScrolls + 1 : 0;
@@ -439,15 +470,15 @@ async function runBuiltinAgent({
               } catch (error) { if (error?.fatal || signal?.aborted) throw error; }
             }
           } else if (!toolFailed && ["open", "start", "tabs_activate", "click", "input", "select", "extract"].includes(call.name)) {
-            consecutiveScrolls = 0; unchangedScrolls = 0; blockedCalls = 0;
-            comparedRecovery = false;
+            consecutiveScrolls = 0; unchangedScrolls = 0;
+            if (call.name !== "extract" || !clickProgress.awaitingRecovery()) {
+              blockedCalls = 0;
+              comparedRecovery = false;
+            }
             if (["open", "start", "tabs_activate"].includes(call.name)) failedTargets.clear();
             else if (target) failedTargets.delete(target);
           }
-          if (harnessEnabled) {
-            observedResults.push(String(content).slice(0, 1400));
-            if (observedResults.length > 6) observedResults.shift();
-          }
+          keepEvidence(content);
         }
         messages.push({ role: "tool", tool_call_id: call.id, content });
       }
