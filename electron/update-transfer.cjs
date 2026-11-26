@@ -1,10 +1,13 @@
 const fs = require("node:fs");
+const { createHash } = require("node:crypto");
 const { Readable, Transform } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 
 // Report bytes only when the server supplies a usable content length. A
 // missing length is an indeterminate download, not an invented percentage.
-async function downloadUpdateFile({ fetchImpl, url, target, signal, onProgress = () => {} }) {
+async function downloadUpdateFile({ fetchImpl, url, target, signal, digest, onProgress = () => {} }) {
+  if (digest && !/^sha256:[0-9a-f]{64}$/i.test(digest)) throw new Error("Invalid browser archive checksum.");
+  const hash = digest ? createHash("sha256") : null;
   const response = await fetchImpl(url, {
     headers: { "User-Agent": "Nextbrowser-runtime-updater" },
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60 * 60 * 1000)]) : AbortSignal.timeout(60 * 60 * 1000),
@@ -19,6 +22,7 @@ async function downloadUpdateFile({ fetchImpl, url, target, signal, onProgress =
   const meter = new Transform({
     transform(chunk, _encoding, callback) {
       received += chunk.length;
+      hash?.update(chunk);
       const percent = total ? Math.min(100, Math.floor(received / total * 100)) : undefined;
       if ((percent !== undefined && percent !== lastPercent) || Date.now() - lastReport >= 250) {
         lastPercent = percent;
@@ -30,6 +34,7 @@ async function downloadUpdateFile({ fetchImpl, url, target, signal, onProgress =
   });
   onProgress({ percent: total ? 0 : undefined, receivedBytes: 0, totalBytes: total });
   await pipeline(Readable.fromWeb(response.body), meter, fs.createWriteStream(target, { mode: 0o600 }), { signal });
+  if (hash && `sha256:${hash.digest("hex")}` !== digest.toLowerCase()) throw new Error("Browser archive checksum mismatch.");
 }
 
 module.exports = { downloadUpdateFile };

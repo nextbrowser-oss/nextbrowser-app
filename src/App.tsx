@@ -206,7 +206,7 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
         </div>
       )}
       <div className="runtime-update-progress-copy">
-        <strong>{installing ? `Updating ${status.currentName ?? "browser toolsets"}` : status.status === "cancelled" ? "Updates stopped" : failed ? "Update failed" : partial ? "Update partly complete" : "Browser toolsets updated"}</strong>
+        <strong>{installing ? `Setting up ${status.currentName ?? "browsers"}` : status.status === "cancelled" ? "Browser setup stopped" : failed ? "Browser setup failed" : partial ? "Some browsers need attention" : "Browsers ready"}</strong>
         <span className="muted small">{status.message}</span>
         {installing && <>
           {status.percent !== undefined && <span className="small">{status.percent}% downloaded</span>}
@@ -1647,7 +1647,7 @@ export function App() {
     <>
       {runtimeUpdateInstall.status === "installing" && runtimeUpdateProgressHidden && (
         <BackgroundTaskPill
-          label={`Updating ${runtimeUpdateInstall.currentName ?? "browser toolsets"}`}
+          label={`Setting up ${runtimeUpdateInstall.currentName ?? "browsers"}${runtimeUpdateInstall.percent === undefined ? "" : ` · ${runtimeUpdateInstall.percent}%`}`}
           onShow={() => setRuntimeUpdateProgressHidden(false)}
         />
       )}

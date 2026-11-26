@@ -148,7 +148,7 @@ function updateInstallMessage(completed, errors) {
 // Keep the multi-toolset update policy independent from Electron. This makes
 // the important guarantee explicit: a failed runtime never prevents later,
 // confirmed runtimes from being attempted.
-async function installSelectedRuntimeUpdates({ requestedRuntimes, retryRuntimes = [], checkForUpdates, installRuntime, signal, onStatus = () => {} }) {
+async function installSelectedRuntimeUpdates({ requestedRuntimes, retryRuntimes = [], missingOnly = false, checkForUpdates, installRuntime, signal, onStatus = () => {} }) {
   const cancelled = (completed = [], runtimes = requestedRuntimes, errors = []) => {
     const result = { status: "cancelled", runtimes, completed, errors, canCancel: false, percent: undefined, currentRuntime: undefined, currentName: undefined, currentVersion: undefined, message: completed.length ? "Stopped. Completed updates were kept; remaining updates were cancelled." : "Update cancelled. You can try again from Settings." };
     onStatus(result);
@@ -156,7 +156,8 @@ async function installSelectedRuntimeUpdates({ requestedRuntimes, retryRuntimes 
   };
   const fresh = await checkForUpdates();
   if (signal?.aborted) return cancelled();
-  const updates = selectAvailableRuntimeUpdates(fresh, requestedRuntimes, retryRuntimes);
+  const updates = selectAvailableRuntimeUpdates(fresh, requestedRuntimes, retryRuntimes)
+    .filter((update) => !missingOnly || update.status === "not-installed");
   if (!updates.length) {
     const requested = new Set(Array.isArray(requestedRuntimes) ? requestedRuntimes.map(String) : []);
     const failedChecks = (fresh?.runtimes || []).filter((runtime) => (
@@ -372,11 +373,12 @@ async function installedClawbrowserVersion(runtimeRoot, executablePath = "", pla
     ? path.dirname(path.dirname(path.dirname(executable)))
     : "";
   const installRoot = macBundle ? path.dirname(macBundle) : path.dirname(executable);
-  const roots = [installRoot, path.dirname(installRoot)];
+  const roots = [...new Set([managedRoot, installRoot, path.dirname(installRoot)])];
   for (const root of roots) {
     const metadata = root === managedRoot ? managedMetadata : await readJSON(path.join(root, ".clawbrowser-browser-release.json"));
     const recordedPath = metadata?.browser_path ? path.resolve(metadata.browser_path) : "";
-    if (metadata?.version && (recordedPath === executable || (macBundle && recordedPath === macBundle) || (!recordedPath && root === managedRoot))) {
+    const legacyManaged = !recordedPath && root === managedRoot && (installRoot === managedRoot || path.dirname(installRoot) === managedRoot);
+    if (metadata?.version && (recordedPath === executable || (macBundle && recordedPath === macBundle) || legacyManaged)) {
       return normalizeVersion(metadata.version);
     }
   }
@@ -480,10 +482,12 @@ function compatibleClawbrowserRelease(release, platform, arch, latestVersion) {
   if (!release || release.draft || release.prerelease || !release.tag_name) return undefined;
   const version = assertRuntimeReleaseVersion(release.tag_name);
   const asset = clawbrowserReleaseAsset(platform, arch, version);
-  if (!release.assets?.some((item) => item.name === asset.assetName)) return undefined;
+  const file = release.assets?.find((item) => item.name === asset.assetName);
+  if (!file) return undefined;
   return {
     version,
     availability: "available",
+    ...(file.digest ? { digest: file.digest } : {}),
     downloadUrl: `https://github.com/clawbrowser/clawbrowser/releases/download/${encodeURIComponent(release.tag_name)}/${asset.assetName}`,
     releasePage: `https://github.com/clawbrowser/clawbrowser/releases/tag/${encodeURIComponent(release.tag_name)}`,
     availabilityMessage: compareVersions(version, latestVersion) < 0
@@ -557,7 +561,7 @@ async function latestClawbrowserRelease(fetchImpl, platform, arch) {
     const html = await fetchText(fetchImpl, "https://github.com/clawbrowser/clawbrowser/releases");
     const tags = [...new Set([...html.matchAll(/\/clawbrowser\/clawbrowser\/releases\/tag\/([^"'/?#<>]+)/g)].map((match) => decodeURIComponent(match[1])))].slice(0, 20);
     for (const tag of tags) {
-      if (!/^v?\d+(?:\.\d+){1,3}$/.test(tag)) continue;
+      if (!/^v?\d+(?:\.\d+){1,3}(?:[-+.][0-9A-Za-z.-]+)?$/.test(tag)) continue;
       const candidate = clawbrowserReleaseAsset(platform, arch, tag);
       const downloadUrl = `https://github.com/clawbrowser/clawbrowser/releases/download/${encodeURIComponent(tag)}/${candidate.assetName}`;
       const result = await fetchImpl(downloadUrl, { method: "HEAD", signal: AbortSignal.timeout(8_000) });
@@ -593,11 +597,19 @@ function runtimeResult(source, currentVersion, latestVersion, error = "", instal
   else if (current) status = "unknown";
   return {
     ...source,
+    installed,
     status,
     currentVersion: current || undefined,
     latestVersion: latest || undefined,
     error: error || undefined,
   };
+}
+
+function missingDefaultBrowsers(check) {
+  return (check.runtimes || []).filter((item) =>
+    ["clawbrowser", "camoufox"].includes(item.runtime) &&
+    (item.status === "not-installed" || (item.status === "error" && item.installed === false))
+  ).map((item) => item.runtime);
 }
 
 async function checkBrowserRuntimeUpdates({ fetchImpl = fetch, runtimeRoot, clawbrowserExecutable = "", readDasbrowserVersion = async () => "", isRuntimeInstalled = {}, platform = process.platform, arch = process.arch }) {
@@ -625,7 +637,7 @@ async function checkBrowserRuntimeUpdates({ fetchImpl = fetch, runtimeRoot, claw
       }
       return {
         ...runtimeResult(source, installed[source.runtime], source.runtime === "clawbrowser" ? latest.version : latest, "", isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime]),
-        ...(source.runtime === "clawbrowser" ? { availabilityMessage: latest.availabilityMessage, downloadUrl: latest.downloadUrl, releasePage: latest.releasePage || source.releasePage } : {}),
+        ...(source.runtime === "clawbrowser" ? { availabilityMessage: latest.availabilityMessage, downloadUrl: latest.downloadUrl, digest: latest.digest, releasePage: latest.releasePage || source.releasePage } : {}),
       };
     } catch (error) {
       return runtimeResult(source, installed[source.runtime], "", error?.message || String(error), isRuntimeInstalled[source.runtime] ?? !!installed[source.runtime]);
@@ -650,6 +662,7 @@ module.exports = {
   installedCamoufoxVersion,
   installedClawbrowserVersion,
   installSelectedRuntimeUpdates,
+  missingDefaultBrowsers,
   installRuntimeUpdateWithVerification,
   normalizeVersion,
   runtimeResult,

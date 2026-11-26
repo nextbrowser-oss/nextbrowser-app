@@ -45,7 +45,7 @@ export function SettingsUpdates({ appVersion, appUpdate, appLabel, appActions, r
         <button className="primary small" disabled={checking || !canStart} onClick={onUpdateAll}>{bulkUpdating ? "Updating…" : "Update all"}</button>
       </div>
     </div>
-    <p className="muted small">Download all installs missing Clawbrowser and Camoufox browsers together. Update all updates installed components. Restart when you're ready.</p>
+    <p className="muted small">Missing Clawbrowser and Camoufox browsers install automatically at startup. You can also start or retry a download here.</p>
     {bulkOutcome && <p className="settings-update-outcome small" role="status">{bulkOutcome}</p>}
     {running && <div className="settings-group settings-operation" role="status">
       <strong>{operation.items?.length ? "Browser installations" : operation.currentName ? `Updating ${operation.currentName}` : "Checking updates"}</strong>

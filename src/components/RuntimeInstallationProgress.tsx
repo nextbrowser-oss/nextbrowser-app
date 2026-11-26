@@ -11,7 +11,7 @@ export function RuntimeInstallationProgress({ item, onCancel }: {
     : item.phase === "verifying" ? "Verifying installation" : item.phase === "downloading" ? "Downloading" : "Installing";
   return <div className="runtime-install-item" role="group" aria-label={`${item.name} installation`}>
     <strong className="small">{item.name} · {running ? phase : item.status === "ready" ? "Ready to use" : item.status === "cancelled" ? "Stopped" : "Needs attention"}</strong>
-    {running && <InstallationProgress label={`Downloading ${item.name}`} percent={item.phase === "downloading" ? item.percent : undefined} />}
+    {running && <InstallationProgress label={`${item.name} · ${phase}`} percent={item.phase === "downloading" ? item.percent : undefined} />}
     <span className="muted small">{running && item.phase === "downloading" && item.percent !== undefined ? `${item.percent}% downloaded` : item.message}
       {running && item.receivedBytes !== undefined ? ` · ${humanBytes(item.receivedBytes)}${item.totalBytes ? ` / ${humanBytes(item.totalBytes)}` : ""}` : ""}</span>
     {running && onCancel && <button className="mini" disabled={item.cancelRequested} onClick={() => onCancel(item.runtime)}>{item.cancelRequested ? "Stopping…" : item.canCancel ? `Cancel ${item.name} download` : `Stop ${item.name} after installation`}</button>}

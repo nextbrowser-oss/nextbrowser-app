@@ -320,6 +320,33 @@ test("fails closed on an error envelope even with a zero exit code", async () =>
   }), /could not confirm/);
 });
 
+test("Windows setup receives the staged release without rediscovering latest or downloading again", async (t) => {
+  const vm = require("node:vm");
+  const root = fixture(t);
+  const staged = path.join(root, "extract");
+  const executable = path.join(root, "Application", "clawbrowser.exe");
+  fs.mkdirSync(path.dirname(executable));
+  fs.writeFileSync(executable, "");
+  const calls = [];
+  const source = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
+  const installer = source.slice(source.indexOf("async function installClawbrowserWithNextctl("), source.indexOf("async function updateClawbrowserRuntime("));
+  const context = vm.createContext({
+    fs: fs.promises, path, nextbrowserRuntimeRoot: () => root, launchable: fs.existsSync,
+    browserInstallArgs: require("./browser-runtime.cjs").browserInstallArgs,
+    run: async (_bin, args) => {
+      calls.push(args);
+      return { code: 0, stdout: JSON.stringify({ data: { browser_path: executable } }) };
+    },
+  });
+  const install = vm.runInContext(installer + "\ninstallClawbrowserWithNextctl", context);
+  await install("nextctl", staged, { version: "1.0.11", assetName: "clawbrowser-win-amd64.zip", url: "https://github.com/clawbrowser/clawbrowser/releases/download/1.0.11/clawbrowser-win-amd64.zip" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "install");
+  assert.equal(calls[0][calls[0].indexOf("--source-root") + 1], staged);
+  assert.equal(calls[0][calls[0].indexOf("--clawbrowser-install-ref") + 1], "1.0.11");
+  assert.equal(await installedClawbrowserVersion(root, executable, "win32"), "1.0.11");
+});
+
 test("fails closed when process liveness cannot be checked", async () => {
   await assert.rejects(assertClawbrowserSessionsStopped({
     sessionNames: ["worker"],

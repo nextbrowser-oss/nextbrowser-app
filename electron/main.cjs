@@ -140,11 +140,7 @@ const liveWindows = createLiveWindowManager({
   browserExecutable: async runtime => {
     if (runtime === "dasbrowser") return childEnv().DASBROWSER_BIN;
     if (runtime !== "camoufox") return childEnv().CLAWBROWSER_BIN;
-    const python = camoufoxVenvPython();
-    if (!fsSync.existsSync(python)) return null;
-    const result = await run(python, ["-c", "from camoufox.pkgman import camoufox_path, launch_path; print(launch_path(camoufox_path(download_if_missing=False)))"], {}, { timeoutMs: 5_000 });
-    const executable = result.stdout.trim().split(/\r?\n/).at(-1);
-    return result.code === 0 && executable && path.isAbsolute(executable) && fsSync.existsSync(executable) ? executable : null;
+    return installedCamoufoxExecutable();
   },
   sessionPID: async (profile, runtime) => {
     if (profile !== undefined && (typeof profile !== "string" || !profile.trim() || profile.length > 256)) return null;
@@ -256,6 +252,7 @@ const {
   compareVersions,
   installedCamoufoxVersion,
   installedClawbrowserVersion,
+  missingDefaultBrowsers,
   installRuntimeUpdateWithVerification,
 } = require("./browser-runtime-updates.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
@@ -341,7 +338,6 @@ let clawbrowserRuntimeUpdateActive = false;
 let clawbrowserRuntimeLaunches = 0;
 let nextctlInstallPromise = null;
 let verifiedNextctlBin = "";
-let browserInstallPromise = null;
 let camoufoxInstallPromise = null;
 let dasbrowserInstallPromise = null;
 const browserRuntimeInstallAbortControllers = new Map();
@@ -1221,24 +1217,10 @@ async function executeNextctlRaw(commandArgs, options = {}) {
         : resolveDasbrowserRuntime(dasbrowserRuntimeOptions());
       adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
     } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
-      await ensureClawbrowserRuntime(bin, { requestId: options.requestId });
-    } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs) && !(await installedCamoufoxVersion(nextbrowserRuntimeRoot()))) {
-      // Only the first start prepares Camoufox; starting an installed one must
-      // not show the install card.
-      setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…", requestId: options.requestId });
-      try {
-        const result = await run(bin, ["--verify-on-start-only", ...adaptedArgs], options.extraEnv || {}, options);
-        if (result.code === 0) {
-          setBrowserRuntimeInstallStatus("camoufox", "ready");
-        } else {
-          setBrowserRuntimeInstallStatus("camoufox", "failed", { message: "We couldn't prepare Camoufox. Please retry." });
-        }
-        return result;
-      } catch (error) {
-        setBrowserRuntimeInstallStatus("camoufox", "failed", { message: String(error?.message || error) });
-        reportMainFailure("BROWSER_RUNTIME_INSTALL_FAILED", error, { runtime: "camoufox" });
-        throw error;
-      }
+      await ensureClawbrowserRuntime(options.requestId);
+    } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)
+      && (browserRuntimeInstaller?.pending("camoufox") || !(await installedCamoufoxExecutable()))) {
+      await prepareMissingBrowser("camoufox", options.requestId);
     }
     return await run(bin, ["--verify-on-start-only", ...adaptedArgs], options.extraEnv || {}, options);
   } finally {
@@ -1481,7 +1463,19 @@ async function ensureAgentControlServer() {
     throw error;
   }
 }
-async function ensureClawbrowserRuntime(nextctlBin, options = {}) {
+async function prepareMissingBrowser(runtime, requestId) {
+  const installer = runtimeInstaller();
+  const { id, controller } = beginBrowserRuntimeInstall(requestId);
+  try {
+    const result = await (installer.pending(runtime) || installer.install([runtime], { missingOnly: true }));
+    controller?.signal.throwIfAborted();
+    const item = result.items.find((item) => item.runtime === runtime);
+    if (item?.status !== "ready") throw new Error(item?.errors?.[0]?.message || item?.message || `Could not install ${runtime}.`);
+  } finally {
+    finishBrowserRuntimeInstall(id, controller);
+  }
+}
+async function ensureClawbrowserRuntime(requestId) {
   const runtimeOptions = {
     platform: process.platform,
     homeDir: home(),
@@ -1489,39 +1483,11 @@ async function ensureClawbrowserRuntime(nextctlBin, options = {}) {
     runtimeRoot: nextbrowserRuntimeRoot(),
   };
   const existing = resolveBrowserRuntime(runtimeOptions);
-  if (existing) return existing;
-  if (browserInstallPromise) return browserInstallPromise;
-
-  browserInstallPromise = (async () => {
-    setBrowserRuntimeInstallStatus("clawbrowser", "downloading", { requestId: options.requestId });
-    const runtimeRoot = nextbrowserRuntimeRoot();
-    await Promise.all([
-      "data", "cache", "installer-bin", "agent-plugins",
-    ].map((dir) => fs.mkdir(path.join(runtimeRoot, dir), { recursive: true })));
-    const result = await run(nextctlBin, browserInstallArgs(runtimeRoot), {}, {
-      requestId: options.requestId,
-      timeoutMs: 60 * 60 * 1000,
-    });
-    const installed = resolveBrowserRuntime(runtimeOptions);
-    if (!installed) {
-      // In JSON mode stdout carries the actual installer failure; stderr can
-      // end at the last progress line (for example, requesting elevation).
-      let reason = "";
-      try { reason = String(JSON.parse(result.stdout)?.error?.message || "").trim(); } catch {}
-      const diagnostics = [result.stderr?.trim(), result.stdout?.trim()].filter(Boolean).join("\n");
-      const detail = reason ? `Clawbrowser installation failed: ${reason}` : diagnostics || "Clawbrowser installation failed";
-      throw result.code === 0 ? new Error(detail) : nbcResultError(result, new Error(detail));
-    }
-    setBrowserRuntimeInstallStatus("clawbrowser", "ready");
-    return installed;
-  })().catch((error) => {
-    setBrowserRuntimeInstallStatus("clawbrowser", "failed");
-    reportMainFailure("BROWSER_RUNTIME_INSTALL_FAILED", error, { runtime: "clawbrowser" });
-    throw error;
-  }).finally(() => {
-    browserInstallPromise = null;
-  });
-  return browserInstallPromise;
+  if (existing && !browserRuntimeInstaller?.pending("clawbrowser")) return existing;
+  await prepareMissingBrowser("clawbrowser", requestId);
+  const installed = resolveBrowserRuntime(runtimeOptions);
+  if (!installed) throw new Error("Clawbrowser setup finished without a browser executable.");
+  return installed;
 }
 function dasbrowserRuntimeOptions() {
   return {
@@ -2077,7 +2043,7 @@ async function checkForBrowserRuntimeUpdates() {
     ...browserRuntimeUpdateStatus,
     status: "checking",
   });
-  browserRuntimeUpdateCheckPromise = checkBrowserRuntimeUpdates({
+  browserRuntimeUpdateCheckPromise = installedCamoufoxExecutable().then((camoufox) => checkBrowserRuntimeUpdates({
     fetchImpl: systemProxy.fetch,
     runtimeRoot: nextbrowserRuntimeRoot(),
     clawbrowserExecutable,
@@ -2086,9 +2052,10 @@ async function checkForBrowserRuntimeUpdates() {
     readDasbrowserVersion: installedDasbrowserVersion,
     isRuntimeInstalled: {
       clawbrowser: !!clawbrowserExecutable,
+      camoufox: !!camoufox,
       dasbrowser: !!resolveDasbrowserRuntime(dasbrowserRuntimeOptions()),
     },
-  }).then((status) => {
+  })).then((status) => {
     setBrowserRuntimeUpdateStatus(status);
     return status;
   }).catch((error) => {
@@ -2111,6 +2078,13 @@ function camoufoxVenvPython() {
   return process.platform === "win32"
     ? path.join(venv, "Scripts", "python.exe")
     : path.join(venv, "bin", "python");
+}
+async function installedCamoufoxExecutable() {
+  const python = camoufoxVenvPython();
+  if (!fsSync.existsSync(python)) return null;
+  const result = await run(python, ["-c", "from camoufox.pkgman import camoufox_path, launch_path; print(launch_path(camoufox_path(download_if_missing=False)))"], {}, { timeoutMs: 8_000 }).catch(() => null);
+  const executable = result?.stdout.trim().split(/\r?\n/).at(-1);
+  return result?.code === 0 && executable && path.isAbsolute(executable) && fsSync.existsSync(executable) ? executable : null;
 }
 async function findClawbrowserReleaseAsset(root) {
   const expected = process.platform === "darwin" ? "Clawbrowser.app" : process.platform === "win32" ? "clawbrowser.exe" : "clawbrowser";
@@ -2140,15 +2114,9 @@ async function replaceClawbrowserRelease(source, release, options = {}) {
   const dataDir = path.join(nextbrowserRuntimeRoot(), "data");
   await fs.mkdir(dataDir, { recursive: true });
   const isBundle = process.platform === "darwin";
-  // The Linux launcher is a script that execs clawbrowser.real next to it, so
-  // the whole release folder is installed, not the launcher alone.
-  const isFolder = process.platform === "linux";
-  const target = isBundle
-    ? path.join(dataDir, "Clawbrowser.app")
-    : isFolder
-      ? path.join(dataDir, "Clawbrowser")
-      : path.join(dataDir, process.platform === "win32" ? "clawbrowser.exe" : "clawbrowser");
-  const executable = isFolder ? path.join(target, "clawbrowser") : target;
+  // Portable Windows and Linux executables need the libraries alongside them.
+  const target = path.join(dataDir, isBundle ? "Clawbrowser.app" : "Clawbrowser");
+  const executable = isBundle ? target : path.join(target, path.basename(source));
   const staged = `${target}.update-${randomUUID()}`;
   const backup = `${target}.previous-${randomUUID()}`;
   let backedUp = false;
@@ -2157,11 +2125,8 @@ async function replaceClawbrowserRelease(source, release, options = {}) {
       await fs.cp(source, staged, dasbrowserAppCopyOptions());
       const signature = await run("codesign", ["--verify", "--deep", "--strict", staged], {}, { timeoutMs: 120_000 });
       if (signature.code !== 0) throw new Error("The downloaded Clawbrowser app failed macOS signature verification.");
-    } else if (isFolder) {
-      await fs.cp(path.dirname(source), staged, { recursive: true, verbatimSymlinks: true });
     } else {
-      await fs.copyFile(source, staged);
-      if (process.platform !== "win32") await fs.chmod(staged, 0o755);
+      await fs.cp(path.dirname(source), staged, { recursive: true, verbatimSymlinks: true });
     }
     try {
       await fs.rename(target, backup);
@@ -2189,7 +2154,7 @@ async function replaceClawbrowserRelease(source, release, options = {}) {
     if (backedUp) await fs.rm(backup, { recursive: true, force: true });
     // Earlier versions copied only the Linux launcher script to the data
     // root, where it cannot find clawbrowser.real.
-    if (isFolder) await removeStrayLinuxLauncher(path.join(dataDir, "clawbrowser"));
+    if (process.platform === "linux") await removeStrayLinuxLauncher(path.join(dataDir, "clawbrowser"));
   } catch (error) {
     await fs.rm(staged, { recursive: true, force: true }).catch(() => undefined);
     if (backedUp) {
@@ -2273,12 +2238,12 @@ async function releaseHasWindowsSetup(root) {
   const entries = await fs.readdir(root, { recursive: true }).catch(() => []);
   return entries.some((entry) => path.basename(String(entry)).toLowerCase() === "setup.exe");
 }
-async function installClawbrowserWithNextctl(nextctlBin) {
-  let result = await run(nextctlBin, ["update", "--browser-only", "--format", "json"], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 30 * 60 * 1000 });
-  if (result.code !== 0 && /unknown flag: --browser-only/.test(`${result.stderr}${result.stdout}`)) {
-    // nextctl releases before --browser-only update the browser as part of a full update.
-    result = await run(nextctlBin, ["update", "--format", "json"], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 30 * 60 * 1000 });
-  }
+async function installClawbrowserWithNextctl(nextctlBin, extracted, release) {
+  const runtimeRoot = nextbrowserRuntimeRoot();
+  const args = [...browserInstallArgs(runtimeRoot), "--source-root", extracted, "--clawbrowser-install-ref", release.version];
+  // Use the extracted setup.exe from the selected platform archive. Running
+  // "update" here would query the unauthenticated releases API a second time.
+  const result = await run(nextctlBin, args, { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 60 * 60 * 1000 });
   if (result.code !== 0) {
     let message = "";
     try {
@@ -2288,16 +2253,25 @@ async function installClawbrowserWithNextctl(nextctlBin) {
     }
     throw nbcResultError(result, new Error(message || String(result.stderr || result.stdout || "").trim().slice(0, 800) || "nextctl could not install Clawbrowser."));
   }
+  const installed = JSON.parse(result.stdout)?.data?.browser_path;
+  if (!installed || !path.isAbsolute(installed) || !launchable(installed)) throw new Error("Windows setup did not return an installed Clawbrowser executable.");
+  const data = path.join(runtimeRoot, "data");
+  await fs.mkdir(data, { recursive: true });
+  await fs.writeFile(path.join(data, ".clawbrowser-browser-release.json"), JSON.stringify({
+    repository: "clawbrowser/clawbrowser", version: release.version, asset_name: release.assetName,
+    archive_url: release.url, browser_path: installed, source: "release-archive",
+  }));
 }
-async function updateClawbrowserRuntime(latestVersion, { signal, onProgress = () => {}, downloadUrl } = {}) {
+async function updateClawbrowserRuntime(latestVersion, { signal, onProgress = () => {}, downloadUrl, digest, firstInstall = false } = {}) {
   const runtimeRoot = nextbrowserRuntimeRoot();
   const release = clawbrowserReleaseAsset(process.platform, process.arch, latestVersion);
   const nextctlBin = await resolveOrInstallNextctl();
-  clawbrowserRuntimeUpdateActive = true;
+  const checkIdle = firstInstall ? async () => {} : () => assertClawbrowserRuntimeIdle(nextctlBin);
+  clawbrowserRuntimeUpdateActive = !firstInstall;
   try {
     // Refuse before downloading, then check again after staging because a
     // profile may have been started while the archive was in flight.
-    await assertClawbrowserRuntimeIdle(nextctlBin);
+    await checkIdle();
     return await installRuntimeUpdateWithVerification({
       label: "Clawbrowser",
       expectedVersion: latestVersion,
@@ -2306,22 +2280,28 @@ async function updateClawbrowserRuntime(latestVersion, { signal, onProgress = ()
         try {
           const archive = path.join(tempDir, release.assetName);
           const extracted = path.join(tempDir, "extract");
-          await downloadUpdateFile({ fetchImpl: systemProxy.fetch, url: downloadUrl || release.url, target: archive, signal, onProgress: (progress) => onProgress({ ...progress, phase: "downloading", canCancel: true, message: "Downloading Clawbrowser…" }) });
+          const url = downloadUrl || release.url;
+          if (!digest) {
+            // The GitHub HTML fallback has no digest field. Newer releases also
+            // publish a checksum alongside the archive, including Windows setup.
+            const checksum = await systemProxy.fetch(`${url}.sha256`, { signal: AbortSignal.any([signal || new AbortController().signal, AbortSignal.timeout(10_000)]) });
+            if (checksum.ok) digest = `sha256:${(await checksum.text()).trim().split(/\s+/)[0]}`;
+            else if (checksum.status !== 404) throw new Error(`Could not check the browser archive checksum (HTTP ${checksum.status}).`);
+          }
+          await downloadUpdateFile({ fetchImpl: systemProxy.fetch, url, target: archive, digest, signal, onProgress: (progress) => onProgress({ ...progress, phase: "downloading", canCancel: true, message: "Downloading Clawbrowser…" }) });
           signal?.throwIfAborted();
           onProgress({ phase: "installing", percent: undefined, canCancel: false, message: "Installing and verifying Clawbrowser. Installation must finish before stopping." });
           await extractArchive(archive, release.kind, extracted);
           const source = await findClawbrowserReleaseAsset(extracted);
           if (!source && process.platform === "win32" && await releaseHasWindowsSetup(extracted)) {
-            // Windows releases now ship setup.exe instead of a portable
-            // clawbrowser.exe. nextctl runs that installer, normalizes the
-            // install and records its version, so let it do the install.
-            await assertClawbrowserRuntimeIdle(nextctlBin);
-            await installClawbrowserWithNextctl(nextctlBin);
+            // Some Windows releases use native setup instead of a portable folder.
+            await checkIdle();
+            await installClawbrowserWithNextctl(nextctlBin, extracted, { ...release, url: downloadUrl || release.url });
             return;
           }
           if (!source) throw new Error("The Clawbrowser release did not contain a browser executable.");
-          await replaceClawbrowserRelease(source, release, {
-            beforeActivate: () => assertClawbrowserRuntimeIdle(nextctlBin),
+          await replaceClawbrowserRelease(source, { ...release, url: downloadUrl || release.url }, {
+            beforeActivate: checkIdle,
           });
         } finally {
           await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
@@ -2445,12 +2425,13 @@ function runtimeInstaller() {
     installRuntime: async (update, onProgress, signal) => {
       try {
         signal.throwIfAborted();
-        if (update.runtime === "clawbrowser") await updateClawbrowserRuntime(update.latestVersion, { signal, onProgress, downloadUrl: update.downloadUrl });
+        if (update.runtime === "clawbrowser") await updateClawbrowserRuntime(update.latestVersion, { signal, onProgress, downloadUrl: update.downloadUrl, digest: update.digest, firstInstall: update.status === "not-installed" });
         else if (update.runtime === "camoufox") {
           // Python mutates the environment. It finishes safely if cancellation
           // is requested, independently of the other browser's download.
           onProgress({ phase: "preparing", percent: undefined, canCancel: false, message: "Preparing the Camoufox Python environment…" });
           await updateCamoufoxRuntime(update.latestVersion, onProgress);
+          if (!(await installedCamoufoxExecutable())) throw new Error("Camoufox setup finished without a browser executable.");
         } else if (update.runtime === "dasbrowser") await ensureDasbrowserRuntime({ force: true, reportStatus: false, signal, onProgress });
         onProgress({ phase: "verifying", percent: undefined, canCancel: false, message: `Verifying installed ${update.name} version…` });
         const expected = assertRuntimeReleaseVersion(update.latestVersion);
@@ -2469,8 +2450,18 @@ async function installBrowserRuntimeUpdates(requestedRuntimes = []) {
   return runtimeInstaller().install(requestedRuntimes);
 }
 function startBrowserRuntimeUpdateChecks() {
-  setTimeout(() => { void checkForBrowserRuntimeUpdates(); }, 5_000);
-  if (browserRuntimeUpdateTimer) clearInterval(browserRuntimeUpdateTimer);
+  if (browserRuntimeUpdateTimer) return;
+  setTimeout(async () => {
+    try {
+      const check = await checkForBrowserRuntimeUpdates();
+      const missing = missingDefaultBrowsers(check);
+      if (missing.length && process.env.NEXTBROWSER_SMOKE_LAUNCH !== "1") {
+        await runtimeInstaller().install(missing, { missingOnly: true });
+      }
+    } catch (error) {
+      reportMainFailure("BROWSER_RUNTIME_INSTALL_FAILED", error);
+    }
+  }, 5_000);
   browserRuntimeUpdateTimer = setInterval(() => {
     void checkForBrowserRuntimeUpdates();
   }, BROWSER_RUNTIME_UPDATE_CHECK_INTERVAL_MS);
@@ -2781,7 +2772,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "browser_runtime_install_status": return browserRuntimeInstallStatus;
     case "browser_runtime_available": {
       const runtime = ["clawbrowser", "dasbrowser", "camoufox"].includes(args.runtime) ? args.runtime : "clawbrowser";
-      if (runtime === "camoufox") return !!(await installedCamoufoxVersion(nextbrowserRuntimeRoot()));
+      if (runtime === "camoufox") return !!(await installedCamoufoxExecutable());
       if (runtime === "dasbrowser") return !!resolveDasbrowserRuntime(dasbrowserRuntimeOptions());
       return !!resolveBrowserRuntime({ platform: process.platform, homeDir: home(), env: process.env, runtimeRoot: nextbrowserRuntimeRoot() });
     }

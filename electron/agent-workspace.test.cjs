@@ -179,7 +179,7 @@ test("profile starts require visible first-install consent and every browser run
 
   assert.match(main, /case "browser_runtime_available"/);
   assert.match(main, /requestId: options\.requestId/);
-  assert.match(main, /ensureClawbrowserRuntime\(bin, \{ requestId: options\.requestId \}\)/);
+  assert.match(main, /await ensureClawbrowserRuntime\(options\.requestId\)/);
   assert.match(main, /ensureDasbrowserRuntime\(\{ requestId: options\.requestId \}\)/);
   assert.match(main, /cancelBrowserRuntimeInstall/);
   assert.match(sidebar, /Download &amp; start/);
