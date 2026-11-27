@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { managedBrowserPID, nativeLayout } = require("./live-window.cjs");
+const { managedBrowserPID, nativeLayout, macLayout } = require("./live-window.cjs");
 
 test("native Live accepts only matching local managed sessions", () => {
   const session = { source: "state_file", runtime: "clawbrowser", endpoint: "http://127.0.0.1:9222" };
@@ -26,4 +26,14 @@ test("native coordinates follow desktop zoom and hidden views expose no native a
     fill: true,
   });
   assert.deepEqual(nativeLayout({ bounds, hidden: true }, 1), { hidden: true });
+});
+
+test("macOS layout moves the panel and its controls into host window points", () => {
+  const bounds = { x: 100, y: 40, width: 600, height: 800 };
+  const button = { x: 116, y: 784, width: 40, height: 40, radius: 20 };
+  assert.deepEqual(macLayout({ bounds, holes: [button] }, 1.25, { x: 0, y: 28 }), {
+    bounds: { x: 125, y: 78, width: 750, height: 1000 },
+    controls: [{ x: 145, y: 1008, width: 50, height: 50 }],
+  });
+  assert.deepEqual(macLayout({ bounds, hidden: true }, 1), { hidden: true });
 });

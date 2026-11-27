@@ -112,6 +112,10 @@
         {
           "from": "build/input-language",
           "to": "input-language"
+        },
+        {
+          "from": "build/live-window-helper",
+          "to": "live-window-helper"
         }
       ],
       "target": [

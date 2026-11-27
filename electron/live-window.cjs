@@ -2,7 +2,7 @@ const { spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { randomUUID } = require("node:crypto");
 
-function startHelper(executable, reportFocus) {
+function startHelper(executable, reportFocus, onEvent = () => {}) {
   const child = spawn(executable, [], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
   const lines = createInterface({ input: child.stdout });
   let pending, failure;
@@ -19,6 +19,10 @@ function startHelper(executable, reportFocus) {
       const result = JSON.parse(line);
       if (result.event === "browser-focus") {
         if (!failure) reportFocus(result.focused === true);
+        return;
+      }
+      if (result.event) {
+        if (!failure) onEvent(result);
         return;
       }
       pending?.settle(result.error ? new Error(result.error) : null, result);
@@ -95,7 +99,46 @@ function nativeLayout(raw, zoom) {
   return { bounds, holes, fill: raw.fill === true };
 }
 
-function createLiveWindowManager({ helperPath, sessionPID, browserExecutable, onBrowserFocus = () => {} }) {
+// macOS: the browser lies directly below the Nextbrowser window, which is
+// transparent over the panel. App controls over the panel stay on top and keep
+// the mouse; everywhere else in the panel the mouse goes to the browser.
+// Bounds are relative to the host window frame, in points.
+function macLayout(raw, zoom, offset = { x: 0, y: 0 }) {
+  const layout = nativeLayout(raw, zoom);
+  if (layout.hidden) return layout;
+  const move = ({ x, y, width, height }) => ({ x: x + offset.x, y: y + offset.y, width, height });
+  return { bounds: move(layout.bounds), controls: layout.holes.map(move) };
+}
+
+// macOS identifies windows across processes by their CGWindowID.
+function macWindowID(window) {
+  const match = /^window:(\d+):/.exec(window.getMediaSourceId());
+  return match ? Number(match[1]) : 0;
+}
+
+function createLiveWindowManager({ helperPath, sessionPID, browserExecutable, onBrowserFocus = () => {}, platform = process.platform }) {
+  const layoutFor = (window, raw) => {
+    const zoom = window.webContents.getZoomFactor();
+    if (platform !== "darwin") return nativeLayout(raw, zoom);
+    if (window.isMinimized() || !window.isVisible()) return { hidden: true };
+    const host = window.getBounds();
+    const content = window.getContentBounds();
+    const layout = macLayout(raw, zoom, { x: content.x - host.x, y: content.y - host.y });
+    // Electron keeps the real frame while macOS animates a Space change.
+    return layout.hidden ? layout : { ...layout, host };
+  };
+  // macOS may keep the browser smaller than the panel (it clamps windows to
+  // the visible screen); the renderer then matches its transparent area.
+  const browserFrame = (window, frame) => {
+    if (!frame) return null;
+    const zoom = window.webContents.getZoomFactor();
+    const host = window.getBounds();
+    const content = window.getContentBounds();
+    return {
+      x: (frame.x - content.x + host.x) / zoom, y: (frame.y - content.y + host.y) / zoom,
+      width: frame.width / zoom, height: frame.height / zoom,
+    };
+  };
   const windows = new WeakMap();
   const queues = new WeakMap();
   const closing = new WeakSet();
@@ -107,10 +150,35 @@ function createLiveWindowManager({ helperPath, sessionPID, browserExecutable, on
     void settled.then(() => { if (queues.get(window) === settled) queues.delete(window); });
     return next;
   };
+  // macOS: the window shadow would fall into the transparent panel.
+  const showHole = (window, visible) => {
+    if (platform !== "darwin" || window.isDestroyed()) return;
+    window.setHasShadow(!visible);
+    if (!visible) window.setIgnoreMouseEvents(false);
+  };
+  // macOS full screen moves the window to its own Space, where another app's
+  // window cannot appear. While a browser is attached the green button zooms
+  // the window on the same Space instead, which Windows does too.
+  const holdFullScreen = (window, attached) => {
+    if (platform !== "darwin" || window.isDestroyed()) return;
+    if (attached && window.isFullScreen()) {
+      // Changing it during the transition would cancel the exit.
+      window.once("leave-full-screen", () => {
+        if (window.isDestroyed()) return;
+        window.maximize();
+        if (windows.has(window)) window.setFullScreenable(false);
+      });
+      window.setFullScreen(false);
+      return;
+    }
+    window.setFullScreenable(!attached);
+  };
   const release = async window => {
     const session = windows.get(window);
     if (!session) return;
     windows.delete(window);
+    showHole(window, false);
+    holdFullScreen(window, false);
     onBrowserFocus(window, false);
     try { await session.helper.send({ operation: "detach" }); }
     catch (error) {
@@ -125,7 +193,7 @@ function createLiveWindowManager({ helperPath, sessionPID, browserExecutable, on
     async handle(window, { operation, profile, runtime, id, layout }) {
       return serialize(window, async () => {
         if (closing.has(window) || window.isDestroyed()) return null;
-        const getLayout = () => nativeLayout(layout, window.webContents.getZoomFactor());
+        const getLayout = () => layoutFor(window, layout);
         if (operation === "start") {
           if (!nativeLiveRuntime(runtime)) return null;
           await release(window);
@@ -134,17 +202,36 @@ function createLiveWindowManager({ helperPath, sessionPID, browserExecutable, on
           if (!pid || !executable || closing.has(window) || window.isDestroyed()) return null;
           const helper = startHelper(helperPath, focused => {
             if (windows.get(window) === session) onBrowserFocus(window, focused);
+          }, event => {
+            if (windows.get(window) !== session || window.isDestroyed()) return;
+            // macOS: only Nextbrowser may reorder its own window, so the
+            // helper asks for it to go back directly above the browser.
+            if (event.event === "host-order" && Number.isInteger(event.above) && event.above > 0) {
+              try { window.moveAbove(`window:${event.above}:0`); }
+              catch { /* That window closed in the meantime. */ }
+            }
+            if (event.event === "pointer") window.setIgnoreMouseEvents(event.passthrough === true);
+            if (event.event === "browser-frame") window.webContents.send("live-window:frame", browserFrame(window, event.frame));
+            if (event.event === "browser-visible") window.webContents.send("live-window:visible", event.visible === true);
           });
+          const host = platform === "darwin" ? macWindowID(window) : Number(window.getNativeWindowHandle().readBigUInt64LE());
           const session = {
-            helper, id: randomUUID(), attached: true, layout: getLayout(),
-            target: { pid, executable, runtime, host: Number(window.getNativeWindowHandle().readBigUInt64LE()) },
+            helper, id: randomUUID(), attached: true, layout: getLayout(), raw: layout,
+            target: { pid, executable, runtime, host },
           };
           // The attach reply and the first focus event can share a stdout chunk.
           windows.set(window, session);
           try {
             const result = await attach(session, session.layout);
             if (result.attached) {
+              holdFullScreen(window, true);
+              showHole(window, !session.layout.hidden);
               return { id: session.id, attached: true };
+            }
+            if (result.permission) {
+              windows.delete(window);
+              helper.close();
+              return { permission: result.permission };
             }
           } catch (error) {
             console.warn("[live-window]", error.message);
@@ -163,19 +250,26 @@ function createLiveWindowManager({ helperPath, sessionPID, browserExecutable, on
         if (operation === "embed" && !session.attached) {
           // Return the existing HWND, even if the user moved or minimized it.
           const nextLayout = getLayout();
+          session.raw = layout;
           const result = await attach(session, nextLayout);
           if (result.attached) {
             session.attached = true;
             session.layout = nextLayout;
+            holdFullScreen(window, true);
+            showHole(window, !nextLayout.hidden);
           }
           if (!result.available) return null;
         } else if (operation === "detach" && session.attached) {
           const result = await session.helper.send({ operation: "detach" });
           session.attached = false;
+          showHole(window, false);
+          holdFullScreen(window, false);
           onBrowserFocus(window, false);
           if (!result.available) return null;
         } else if (operation === "layout") {
           session.layout = getLayout();
+          session.raw = layout;
+          showHole(window, session.attached && !session.layout.hidden);
           const result = await session.helper.send({ operation: "layout", layout: session.layout });
           if (!result.available) return null;
         } else if (operation === "status") {
@@ -196,6 +290,7 @@ function createLiveWindowManager({ helperPath, sessionPID, browserExecutable, on
       void serialize(window, async () => {
         const session = windows.get(window);
         if (session?.attached && !closing.has(window)) {
+          if (platform === "darwin") session.layout = layoutFor(window, session.raw);
           await session.helper.send({ operation: "layout", layout: session.layout });
         }
       }).catch(error => console.warn("[live-window]", error.message)).finally(() => boundsPending.delete(window));
@@ -204,4 +299,4 @@ function createLiveWindowManager({ helperPath, sessionPID, browserExecutable, on
   };
 }
 
-module.exports = { createLiveWindowManager, managedBrowserPID, nativeLayout, nativeLiveRuntime };
+module.exports = { createLiveWindowManager, managedBrowserPID, nativeLayout, macLayout, nativeLiveRuntime };

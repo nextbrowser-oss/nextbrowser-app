@@ -10,6 +10,7 @@ import { invoke } from "../electronBridge";
 import { liveRuntimeLabel, type LiveSessionOption } from "../lib/liveSessions";
 import { showLiveStartPage } from "../lib/liveStartPage";
 import { liveWindowLayout } from "../lib/liveWindowLayout";
+import { setLiveWindowHole, type LiveWindowFrame } from "../lib/liveWindowHole";
 import {
   createLiveStartTurns,
 } from "../lib/liveProfileSwitch";
@@ -19,8 +20,11 @@ import { LiveControls } from "./LiveControls";
 import { LiveBrowserToolbar } from "./LiveBrowserToolbar";
 import "./liveView.css";
 
-type LiveState = "idle" | "needs-download" | "needs-native-restart" | "connecting" | "live" | "error";
+type LiveState = "idle" | "needs-download" | "needs-native-restart" | "needs-permission" | "connecting" | "live" | "error";
 type LiveWindowSession = { id: string; attached: boolean };
+// macOS: the helper could not move the browser window without Accessibility.
+type LiveWindowPermission = { permission: "accessibility" };
+const nativeWindowPlatform = () => ["win32", "darwin"].includes(window.nextbrowser?.platform ?? "");
 const runtimeNames = { clawbrowser: "ClawBrowser", dasbrowser: "DasBrowser", camoufox: "Camoufox" };
 const LIVE_VIEW_BACKGROUND_TTL_MS = 10 * 60 * 1000;
 
@@ -64,6 +68,8 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
   const [streamInfo, setStreamInfo] = useState<RemoteStreamInfo | null>(null);
   const [liveWindow, setLiveWindow] = useState<LiveWindowSession | null>(null);
   const liveWindowRef = useRef<LiveWindowSession | null>(null);
+  // macOS: whether the helper placed the browser, and its real frame.
+  const browserPlacement = useRef<{ visible: boolean; frame: LiveWindowFrame | null }>({ visible: false, frame: null });
   const nativeStage = useRef<HTMLDivElement>(null);
   const nativeLayoutActive = useRef(active);
   nativeLayoutActive.current = active;
@@ -167,6 +173,7 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
   };
 
   const updateLiveWindow = (session: LiveWindowSession | null) => {
+    if (session?.id !== liveWindowRef.current?.id) browserPlacement.current = { visible: false, frame: null };
     liveWindowRef.current = session;
     setLiveWindow(session);
   };
@@ -323,13 +330,24 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
       if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) return;
       const target = profileOptions.find((option) => option.key === requestedKey)?.target;
       if (!target) throw new Error("Select a profile in this workspace first.");
+      if (native && target.runtime !== "multilogin" && liveWindowRef.current) {
+        // Attached while the profile was starting.
+        setState("live");
+        await showLiveStartPage(target, current, workspaceId).catch(error => console.warn("[live-start-page]", error));
+        return;
+      }
       if (native && target.runtime !== "multilogin") {
-        const session = await invoke<LiveWindowSession | null>("live_window", {
+        const result = await invoke<LiveWindowSession | LiveWindowPermission | null>("live_window", {
           operation: "start", profile: target.profile, runtime: target.runtime,
           layout: liveWindowLayout(nativeStage.current, nativeLayoutActive.current),
         }).catch(() => null);
+        const session = result && "id" in result ? result : null;
         if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) {
           if (session) void invoke("live_window", { operation: "release", id: session.id }).catch(() => undefined);
+          return;
+        }
+        if (result && "permission" in result) {
+          setState("needs-permission");
           return;
         }
         if (session) {
@@ -375,6 +393,28 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
     if (key !== requestedKey) s.openLiveSession(key);
   };
 
+  const attachWhileStarting = (target: LiveSessionOption["target"], generation: number) => {
+    let stopped = false;
+    const current = () => !stopped && generation === streamGeneration.current && !liveWindowRef.current;
+    const done = (async () => {
+      while (current()) {
+        await new Promise(resolve => window.setTimeout(resolve, 700));
+        if (!current() || target.runtime === "multilogin") return;
+        const result = await invoke<LiveWindowSession | LiveWindowPermission | null>("live_window", {
+          operation: "start", profile: target.profile, runtime: target.runtime,
+          layout: liveWindowLayout(nativeStage.current, nativeLayoutActive.current),
+        }).catch(() => null);
+        if (result && "id" in result) {
+          if (generation === streamGeneration.current) updateLiveWindow(result);
+          else void invoke("live_window", { operation: "release", id: result.id }).catch(() => undefined);
+          return;
+        }
+        if (result && "permission" in result) return;
+      }
+    })();
+    return { stop: () => { stopped = true; return done; } };
+  };
+
   const launchAndStream = async (key = launchTarget, downloadConfirmed = false, restart = false) => {
     // A profile switch or Stop while the profile launches takes precedence.
     const generation = streamGeneration.current;
@@ -383,9 +423,14 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
     try {
       const option = profileOptions.find(candidate => candidate.key === key);
       if (!option) throw new Error("Select a profile in this workspace first.");
-      const native = option.target.runtime !== "multilogin" && window.nextbrowser?.platform === "win32";
+      const native = option.target.runtime !== "multilogin" && nativeWindowPlatform();
       if (native && !(await invoke<boolean>("live_window_available", { runtime: option.target.runtime }))) {
-        throw new Error("The Windows Live window helper is unavailable.");
+        throw new Error("The Live window helper is unavailable.");
+      }
+      if (native && window.nextbrowser?.platform === "darwin" &&
+          !(await invoke<{ trusted: boolean }>("live_window_permission")).trusted) {
+        if (generation === streamGeneration.current) setState("needs-permission");
+        return;
       }
       if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== activeWorkspaceID) return;
       if (option.target.runtime !== "multilogin" && (!option.running || restart)) {
@@ -400,8 +445,15 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
           setState("needs-download");
           return;
         }
-        if (profile) await s.startProfile(profile, { forLive: true, liveWindow: native });
-        else await s.startDefaultSession({ forLive: true, liveWindow: native });
+        // macOS: put the browser window into the panel as soon as it exists,
+        // so its start and verification already happen inside Nextbrowser.
+        const early = native && window.nextbrowser?.platform === "darwin" ? attachWhileStarting(option.target, generation) : null;
+        try {
+          if (profile) await s.startProfile(profile, { forLive: true, liveWindow: native });
+          else await s.startDefaultSession({ forLive: true, liveWindow: native });
+        } finally {
+          await early?.stop();
+        }
       }
       if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== activeWorkspaceID) return;
       await start(key, native, Boolean(option.running) && !restart);
@@ -536,6 +588,10 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
       if (disposed) return;
       if (pending) { dirty = true; return; }
       const layout = liveWindowLayout(nativeStage.current, active);
+      if (window.nextbrowser?.platform === "darwin") {
+        const { visible, frame } = browserPlacement.current;
+        setLiveWindowHole(liveWindow.attached && visible ? layout : null, frame);
+      }
       const serialized = JSON.stringify(layout);
       const changed = liveWindow.attached && serialized !== lastLayout;
       if (!changed && !checkStatus) return;
@@ -560,6 +616,17 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
     const schedule = () => {
       if (!disposed && !frame) frame = requestAnimationFrame(() => { frame = 0; void sync(); });
     };
+    // macOS: the part of the panel the browser window really covers.
+    // Only once it is placed: before that the panel would show the desktop.
+    // The helper reports changes only, so the state outlives this effect.
+    const stopFrame = window.nextbrowser?.on?.("live-window:frame", frame => {
+      browserPlacement.current.frame = frame as LiveWindowFrame | null;
+      void sync(true);
+    });
+    const stopVisible = window.nextbrowser?.on?.("live-window:visible", visible => {
+      browserPlacement.current.visible = visible === true;
+      void sync(true);
+    });
     const resize = new ResizeObserver(schedule);
     if (nativeStage.current) resize.observe(nativeStage.current);
     const mutation = new MutationObserver(schedule);
@@ -569,6 +636,9 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
     const timer = window.setInterval(() => void sync(true), 1000);
     return () => {
       disposed = true;
+      stopFrame?.();
+      stopVisible?.();
+      setLiveWindowHole(null);
       if (frame) cancelAnimationFrame(frame);
       clearInterval(timer);
       resize.disconnect();
@@ -785,6 +855,19 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
             <button className="primary live-stream-btn" onClick={() => void launchAndStream(launchTarget, true)}>{translate("Download & start")}</button>
           </div>
         )}
+        {state === "needs-permission" && (
+          <div className="live-empty-panel">
+            <Icon name="lock.fill" size={32} className="muted" />
+            <strong>{translate("Allow Nextbrowser to place the browser window")}</strong>
+            <p className="muted">{translate("macOS asks for Accessibility access before Nextbrowser can keep the browser inside Processes. Turn on Nextbrowser in Privacy & Security → Accessibility, then try again.")}</p>
+            <div className="live-controls-actions">
+              <button className="btn-bordered" onClick={() => void invoke("live_window_permission", { request: true })}>
+                {translate("Open Accessibility settings")}
+              </button>
+              <button className="primary live-stream-btn" onClick={() => void launchAndStream()}>{translate("Try again")}</button>
+            </div>
+          </div>
+        )}
         {state === "needs-native-restart" && (
           <div className="live-empty-panel">
             <strong>{translate("Processes needs a browser window")}</strong>
@@ -892,7 +975,7 @@ export function LiveView({ active, requestedKey, profileOptions, controlsOpen, o
               value: profile.key,
               label: profile.target.runtime === "multilogin" ? `${profile.label} · ${liveRuntimeLabel(profile.target)}` : profile.label,
             }))} />
-          <span className={`live-pill live-status-${state}`}>{state === "needs-download" ? translate("Download required") : state === "idle" ? translate("Off") : state}</span>
+          <span className={`live-pill live-status-${state}`}>{state === "needs-download" ? translate("Download required") : state === "needs-permission" ? translate("Permission required") : state === "idle" ? translate("Off") : state}</span>
         </div>
         {(canDetach || state === "connecting") && <div className="live-controls-actions">
           {canDetach && <button className="btn-bordered" type="button" onClick={liveWindow

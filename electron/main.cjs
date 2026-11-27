@@ -102,7 +102,7 @@ function codexUserMcp(servers) {
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
-const { app, BrowserWindow, WebContentsView, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net, Notification } = require("electron");
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net, Notification, systemPreferences } = require("electron");
 const { buildSupportDiagnostics } = require('./support-diagnostics.cjs');
 if (process.platform === "win32") {
   // A native Live window sits beneath the shaped Electron host. The Windows
@@ -132,9 +132,10 @@ const accountActivity = require("./account-activity.cjs").createAccountActivity(
     ? path.join(process.resourcesPath, "app.asar.unpacked", "electron", "account-activity-worker.cjs")
     : path.join(__dirname, "account-activity-worker.cjs"),
 });
+const liveWindowHelperName = process.platform === "win32" ? "live-window-helper.exe" : "live-window-helper";
 const liveWindowHelper = app.isPackaged
-  ? path.join(process.resourcesPath, "live-window-helper.exe")
-  : path.join(__dirname, "..", "build", "live-window-helper.exe");
+  ? path.join(process.resourcesPath, liveWindowHelperName)
+  : path.join(__dirname, "..", "build", liveWindowHelperName);
 const liveWindows = createLiveWindowManager({
   onBrowserFocus: accountActivity.live,
   helperPath: liveWindowHelper,
@@ -2501,10 +2502,21 @@ async function apiFetchJSON(baseURL, route, options = {}) {
 async function invokeCommand(command, args = {}, sender) {
   if (workspaceResetInProgress) throw userError("Nextbrowser is resetting its data.");
   switch (command) {
+    case "live_window_permission": {
+      // macOS moves the browser window through the Accessibility API, which
+      // needs the user's permission for Nextbrowser.
+      if (process.platform !== "darwin") return { trusted: true };
+      if (systemPreferences.isTrustedAccessibilityClient(false)) return { trusted: true };
+      if (args.request === true) {
+        systemPreferences.isTrustedAccessibilityClient(true);
+        await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility");
+      }
+      return { trusted: false };
+    }
     case "live_window_available":
     case "live_window": {
       const window = sender && BrowserWindow.fromWebContents(sender);
-      const available = process.platform === "win32" && !scheduleWorker && window &&
+      const available = ["win32", "darwin"].includes(process.platform) && !scheduleWorker && window &&
         chromeWindows.has(window) && window.webContents === sender && fsSync.existsSync(liveWindowHelper);
       if (command === "live_window_available") return !!available && nativeLiveRuntime(args.runtime);
       if (!available || appQuitting) return null;
@@ -2970,6 +2982,8 @@ async function invokeCommand(command, args = {}, sender) {
       const theme = args.theme === "light" ? "light" : "dark";
       nativeTheme.themeSource = args.preference === "system" ? "system" : theme;
       for (const window of desktopWindows()) {
+        // The macOS app window stays transparent; its page paints the background.
+        if (process.platform === "darwin" && chromeWindows.has(window)) continue;
         if (!applyWindowChrome(window, { background: args.background, foreground: args.foreground, factor: window.webContents.getZoomFactor() }, process.platform, chromeWindows.has(window))) {
           window.setBackgroundColor(theme === "light" ? "#f5f5f7" : "#15141c");
         }
@@ -3922,6 +3936,8 @@ function createWindow() {
     title: isDevBuild ? "Nextbrowser DEV" : "Nextbrowser", width: size.width, height: size.height,
     minWidth: MIN_WINDOW_SIZE.width, minHeight: MIN_WINDOW_SIZE.height,
     backgroundColor: "#0e0e0e", show: false,
+    // macOS Live shows the local browser window through the Processes panel.
+    ...(process.platform === "darwin" ? { transparent: true, backgroundColor: "#00000000" } : {}),
     ...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors),
     // The native menu looks like Electron chrome in the Windows product UI.
     // Keep keyboard access through Alt without reserving visual space for it.
@@ -3935,7 +3951,7 @@ function createWindow() {
   rememberWindowSize(window, appSettings(), size);
   accountActivity.bind(window);
   miniApps().guardWindow(window);
-  if (process.platform === "win32") {
+  if (process.platform === "win32" || process.platform === "darwin") {
     const syncLiveWindow = () => liveWindows.syncBounds(window);
     window.on("move", syncLiveWindow);
     window.on("resize", syncLiveWindow);
@@ -4246,7 +4262,7 @@ if (!gotLock) {
       }
       if (command === 'support_diagnostics_copy' && (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== 'window')) throw userError('Support diagnostics are only available in the application window.');
       if (String(command).startsWith('user_mcp_') && (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== 'window')) throw userError('MCP setup is only available in the application window.');
-      if ((command === "live_window" || command === "live_window_available") &&
+      if ((command === "live_window" || command === "live_window_available" || command === "live_window_permission") &&
           event.senderFrame !== event.sender.mainFrame) return null;
       const action = /^[a-z0-9_]{1,64}$/.test(String(command)) ? command : "unknown";
       // nbc calls get their own, more specific breadcrumb from run().

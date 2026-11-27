@@ -23,7 +23,7 @@ Use `npm run dev` for interactive application testing. Use `npm run dist:mac` or
 
 ## Live architecture
 
-Use the Nextbrowser backend for streamed Live viewing and control, including profiles running on a separate VPS. On Windows, Live hosts the native window of local ClawBrowser, DasBrowser and Camoufox profiles after the managed nextctl launch checks.
+Use the Nextbrowser backend for streamed Live viewing and control, including profiles running on a separate VPS. On Windows, Live hosts the native window of local ClawBrowser, DasBrowser and Camoufox profiles after the managed nextctl launch checks. On macOS it does the same with `electron/native/live_window_darwin.swift`: the app window is transparent over the Processes panel and the browser window is kept directly below it through the Accessibility API, which needs the user's Accessibility permission.
 
 ## Renderer architecture and shared UI
 

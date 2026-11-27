@@ -113,3 +113,8 @@
   font-size: 12px;
   pointer-events: none;
 }
+
+/* macOS native Live: the app window is transparent and the local browser
+   window lies below it; see src/lib/liveWindowHole.ts. */
+:root[data-live-hole] body { background: transparent; }
+:root[data-live-hole] .desktop-shell { clip-path: var(--live-hole); }
