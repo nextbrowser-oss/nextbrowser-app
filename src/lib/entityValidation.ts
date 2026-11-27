@@ -1,6 +1,7 @@
 export const entityNameLimits = {
   workspace: 200,
   project: 200,
+  session: 200,
   profile: 120,
 } as const;
 

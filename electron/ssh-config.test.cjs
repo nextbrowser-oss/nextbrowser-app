@@ -234,7 +234,7 @@ test("does not enumerate an Include glob through a symlinked directory", async (
   const outsideDir = path.join(homeDir, "outside");
   await fs.mkdir(outsideDir);
   await fs.writeFile(path.join(outsideDir, "leaked.conf"), "Host leaked\n", "utf8");
-  await fs.symlink(outsideDir, path.join(sshDir, "conf.d", "link"), "dir");
+  await fs.symlink(outsideDir, path.join(sshDir, "conf.d", "link"), process.platform === "win32" ? "junction" : "dir");
   await fs.writeFile(configPath, [
     "Include conf.d/link/*.conf",
     "Host safe",

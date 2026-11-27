@@ -3,9 +3,11 @@
 // wrong one or none, so the agent sees a small allowlist with the arguments a
 // task needs, in a JSON schema every OpenAI-compatible provider accepts.
 
+const { pageObservation } = require("./browser-click-progress.cjs");
+
 // In the order the model reads them. screenshot is offered to vision models only.
 const BUILTIN_AGENT_TOOLS = Object.freeze([
-  "profiles_list", "start", "open", "state", "click", "input", "press", "select",
+  "profiles_list", "start", "open", "tab_tools_list", "tab_tool_call", "state", "click", "input", "press", "select",
   "scroll", "wait", "extract", "tabs_list", "tabs_activate", "save_artifact",
 ]);
 const VISION_TOOLS = Object.freeze(["screenshot"]);
@@ -198,7 +200,7 @@ function truncateText(text, limit) {
  * An MCP tool result as the text the model reads, cut to `limit` characters.
  * Images go back separately and only to a vision model.
  */
-function toolResultForModel(result, { limit = 8_000, vision = false } = {}) {
+function toolResultForModel(result, { limit = 8_000, vision = false, pageTool } = {}) {
   const parts = Array.isArray(result?.content) ? result.content : [];
   const texts = [];
   const images = [];
@@ -207,9 +209,10 @@ function toolResultForModel(result, { limit = 8_000, vision = false } = {}) {
     else if (part?.type === "image" && typeof part.data === "string" && part.data) images.push({ data: part.data, mimeType: String(part.mimeType || "image/png") });
   }
   let text = texts.join("\n").trim();
+  const observation = pageTool === "click" || pageTool === "state" ? { pageObservation: pageObservation(pageTool, text) } : {};
   if (!text) text = images.length ? (vision ? "Screenshot taken; it follows as an image." : "Screenshot taken, but this model cannot see images.") : "Done (no output).";
   if (result?.isError) text = `Error: ${text}`;
-  return { text: truncateText(text, limit), images: vision ? images : [], isError: result?.isError === true };
+  return { ...observation, text: truncateText(text, limit), images: vision ? images : [], isError: result?.isError === true };
 }
 
 // What makes a browser call recognisable in the chat's step list. The text
@@ -260,7 +263,7 @@ function createMCPToolset({ client, mcpTools, vision = false, strict = false, de
     async call(name, args) {
       // A first start can wait for a profile check or a slow proxy.
       const result = await client.callTool(name, args, name === "start" ? Math.max(timeoutMs, START_TIMEOUT_MS) : timeoutMs);
-      return toolResultForModel(result, { limit: resultLimit, vision });
+      return toolResultForModel(result, { limit: resultLimit, vision, pageTool: name });
     },
   };
 }

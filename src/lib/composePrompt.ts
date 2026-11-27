@@ -39,6 +39,18 @@ const VPS_NEXTCTL_PROMPT =
   "Do not install, download, update, configure, initialize, repair, or start anything merely to test " +
   "readiness, and do not fall back to local execution.]";
 
+/** Only messages preceding the user turn paired with this reply belong to its history. */
+export function recentChatHistory(conversation: Conversation | undefined, replyId: string, remoteOnly = false) {
+  const messages = conversation?.messages ?? [];
+  const end = messages.findIndex(message => message.id === replyId);
+  const beforeReply = end < 0 ? messages : messages.slice(0, end);
+  const userIndex = beforeReply.map(message => message.role).lastIndexOf("user");
+  return beforeReply.slice(0, userIndex < 0 ? beforeReply.length : userIndex)
+    .flatMap(({ role, text }) => (role === "user" || role === "assistant") && text.trim() &&
+      !(remoteOnly && hasVPSPromptMarker(text)) ? [{ role, content: text }] : [])
+    .slice(-12);
+}
+
 export function composePrompt(
   conversations: Conversation[],
   conversationId: string,
@@ -49,10 +61,6 @@ export function composePrompt(
 ): string {
   const parts: string[] = [];
   const conv = conversations.find((c) => c.id === conversationId);
-  const replyIndex = conv?.messages.findIndex((message) => message.id === replyId) ?? -1;
-  const messagesBeforeReply = replyIndex >= 0
-    ? conv?.messages.slice(0, replyIndex) ?? []
-    : conv?.messages ?? [];
   const remoteOnly = opts.executionTarget != null
     ? opts.executionTarget === "vps"
     : conv?.executionTarget === "vps";
@@ -77,19 +85,16 @@ export function composePrompt(
   } else {
     parts.push(LOCAL_NEXTCTL_PROMPT);
   }
-  if (conv) {
-    let prior = messagesBeforeReply.filter(
-      (m) =>
-        m.role !== "system" &&
-        m.text.trim(),
-    );
-    const lastUser = prior.map((m, i) => ({ m, i })).filter(({ m }) => m.role === "user").pop();
-    if (lastUser) prior = prior.filter((_, i) => i !== lastUser.i);
-    if (remoteOnly) prior = prior.filter((message) => !hasVPSPromptMarker(message.text));
-    const recent = prior.slice(-12);
+  if (!opts.builtinAgent) {
+    parts.push("If a website requires a CAPTCHA or another interactive browser verification, stop the affected task. " +
+      "Tell the user which page needs their attention, ask them to complete the check in the browser, and wait for them to tell you to continue. " +
+      "If the browser reports a proxy connection failure, stop browser work and report the failure and the affected profile.");
+  }
+  if (!opts.builtinAgent) {
+    const recent = recentChatHistory(conv, replyId, remoteOnly);
     if (recent.length) {
       const lines = recent.map(
-        (m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`,
+        (m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`,
       );
       parts.push("Conversation so far:\n" + lines.join("\n\n"));
     }

@@ -1,0 +1,13 @@
+{
+  "description": "Tablero de tareas con columnas To do, In progress y Done.",
+  "useCases": [
+    "Organiza las tareas en tres columnas y muévelas según avanza el trabajo.",
+    "El agente puede añadir tareas, editar notas y mover tarjetas."
+  ],
+  "requirements": "Las tareas se guardan localmente en tu cuenta de Nextbrowser. No hace falta iniciar sesión en ningún otro sitio.",
+  "example": "Mueve la checklist de lanzamiento a In progress.",
+  "screenshots": {
+    "board.png": "Tablero con tareas de ejemplo",
+    "editor.png": "Editor de tareas"
+  }
+}

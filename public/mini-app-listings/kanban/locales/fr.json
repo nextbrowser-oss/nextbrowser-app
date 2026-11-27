@@ -1,0 +1,13 @@
+{
+  "description": "Tableau de tâches avec les colonnes To do, In progress et Done.",
+  "useCases": [
+    "Organisez vos tâches en trois colonnes et déplacez-les au fil du travail.",
+    "L’agent peut ajouter des tâches, modifier des notes et déplacer des cartes."
+  ],
+  "requirements": "Les tâches sont stockées localement dans votre compte Nextbrowser. Aucune autre connexion n’est nécessaire.",
+  "example": "Déplace la checklist de lancement vers In progress.",
+  "screenshots": {
+    "board.png": "Tableau avec des tâches d’exemple",
+    "editor.png": "Éditeur de tâche"
+  }
+}

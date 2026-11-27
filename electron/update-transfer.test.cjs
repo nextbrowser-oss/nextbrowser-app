@@ -30,6 +30,11 @@ test("does not invent percentages for unknown or HTTP-compressed download sizes"
   }
 });
 
+test("rejects a damaged archive before it can be extracted", async (t) => {
+  const file = await target(t);
+  await assert.rejects(downloadUpdateFile({ target: file, url: "https://example.test/archive", digest: "sha256:" + "0".repeat(64), fetchImpl: async () => new Response("broken") }), /checksum mismatch/);
+});
+
 test("aborts a download instead of reporting a partial file as installed", async (t) => {
   const file = await target(t);
   const controller = new AbortController();

@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { countryFlag, filterCountryList, ROTATION_COUNTRIES, type RotationCountry } from "../lib/countryFlag";
@@ -148,7 +149,7 @@ export function CountrySelect({ value, onChange, disabled = false, ariaLabel, co
             <span className="country-select-code">{selectedCountry.code}</span>
           </>
         ) : (
-          <span className="country-select-placeholder">Choose a country</span>
+          <span className="country-select-placeholder">{translate("Choose a country")}</span>
         )}
         <Icon name="chevron.down" size={14} className="country-select-chevron" />
       </button>
@@ -166,8 +167,8 @@ export function CountrySelect({ value, onChange, disabled = false, ariaLabel, co
               ref={searchRef}
               type="search"
               value={query}
-              placeholder="Search countries…"
-              aria-label="Search countries"
+              placeholder={translate("Search countries…")}
+              aria-label={translate("Search countries")}
               aria-controls={`${id}-listbox`}
               aria-activedescendant={results[activeIndex] ? `${id}-${results[activeIndex].code}` : undefined}
               onChange={(event) => {
@@ -177,7 +178,7 @@ export function CountrySelect({ value, onChange, disabled = false, ariaLabel, co
               onKeyDown={handleSearchKeyDown}
             />
           </div>
-          <div id={`${id}-listbox`} className="country-select-options" role="listbox" aria-label="Countries">
+          <div id={`${id}-listbox`} className="country-select-options" role="listbox" aria-label={translate("Countries")}>
             {results.map((country, index) => {
               const selected = country.code === value.toUpperCase();
               return (
@@ -199,7 +200,7 @@ export function CountrySelect({ value, onChange, disabled = false, ariaLabel, co
                 </button>
               );
             })}
-            {results.length === 0 && <div className="country-select-empty">No countries found</div>}
+            {results.length === 0 && <div className="country-select-empty">{translate("No countries found")}</div>}
           </div>
         </div>
       ), document.body)}

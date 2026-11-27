@@ -1,3 +1,5 @@
+import { translate } from "../shared/lib/i18n";
+import { Tooltip } from "../shared/ui";
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AGENTS, agentById } from "../agents";
@@ -11,7 +13,7 @@ interface AgentPickerProps {
   tabLike?: boolean;
 }
 
-export function AgentPicker({ compact = false, createChatOnSwitch = false, label = "Agent", tabLike = false }: AgentPickerProps) {
+export function AgentPicker({ compact = false, createChatOnSwitch = false, label = translate("Agent"), tabLike = false }: AgentPickerProps) {
   const agentId = useStore((s) => s.agentId);
   const switchAgent = useStore((s) => s.switchAgent);
   const newChat = useStore((s) => s.newChat);
@@ -68,11 +70,10 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
 
   return (
     <div className={"agent-picker" + (compact ? " agent-picker-compact" : "") + (tabLike ? " agent-picker-tab" : "")}>
-      <button
+      <Tooltip content={title}><button
         ref={buttonRef}
         className={tabLike ? "tab-hit agent-tab-hit" : "agent-picker-button"}
         onClick={() => setOpen((value) => !value)}
-        title={title}
         aria-label={title}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -90,39 +91,37 @@ export function AgentPicker({ compact = false, createChatOnSwitch = false, label
             {!compact && <Icon name="chevron.down" size={12} className="muted" />}
           </>
         )}
-      </button>
+      </button></Tooltip>
       {open && createPortal(
         <>
-          <button className="menu-dismiss-layer" onClick={() => setOpen(false)} aria-label="Close agent picker" />
+          <button className="menu-dismiss-layer" onClick={() => setOpen(false)} aria-label={translate("Close agent picker")} />
           <div className="agent-picker-menu agent-picker-menu-floating" style={menuStyle}>
             <div className="agent-picker-warning">
               <Icon name="info.circle" size={13} />
-              {createChatOnSwitch ? "Switching agent creates a new chat." : "New chats will use the selected agent."}
+              {createChatOnSwitch ? translate("Switching agent creates a new chat.") : translate("New chats will use the selected agent.")}
             </div>
             <div className="agent-search-box agent-picker-search">
               <Icon name="magnifyingglass" size={12} className="muted" />
               <input
                 className="agent-search-input"
                 autoFocus
-                aria-label="Search agents"
-                placeholder="Search agents..."
+                aria-label={translate("Search agents")}
+                placeholder={translate("Search agents...")}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
             </div>
-            <div className="agent-picker-list" role="listbox" aria-label="Agents">
+            <div className="agent-picker-list" role="listbox" aria-label={translate("Agents")}>
               {matches.map((agent) => (
-                <button
-                  key={agent.id}
+                <Tooltip key={agent.id} content={agent.id === agentId ? translate("%1 is active", agent.name) : translate("Switch to %1", agent.name)}><button
                   className={"agent-row" + (agent.id === agentId ? " agent-row-active" : "")}
                   role="option"
                   aria-selected={agent.id === agentId}
-                  title={agent.id === agentId ? `${agent.name} is active` : `Switch to ${agent.name}`}
                   onClick={() => choose(agent.id)}
                 >
                   <span>{agent.name}</span>
                   {agent.id === agentId && <Icon name="checkmark" size={12} className="accent-icon" />}
-                </button>
+                </button></Tooltip>
               ))}
             </div>
           </div>

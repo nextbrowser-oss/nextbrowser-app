@@ -51,6 +51,38 @@ beforeEach(() => {
   bridge.invoke.mockResolvedValue(null);
 });
 
+describe("session names", () => {
+  it.each([false, true])("names the root session independently and respects a manual rename (%s)", async manual => {
+    const { useStore } = await import("./store");
+    const root = conversation("Research project", "nextbrowser", 1);
+    const runtime = useStore.getState().runtime.nextbrowser;
+    useStore.setState({
+      agentId: root.agent, conversations: [root], activeConvId: { nextbrowser: root.id },
+      runtime: { nextbrowser: { ...runtime, queue: [], ready: true, loggedIn: true } }, startConsumer: () => {},
+    });
+    let complete!: (result: { code: number; stdout: string }) => void;
+    bridge.invoke.mockImplementation(async (command: string) => command === "workflow_author_run"
+      ? new Promise(resolve => { complete = resolve; }) : null);
+    const s = useStore.getState();
+    s.enqueue("Compare the cost of sleeper trains in Europe", undefined, root.id, [], "context reserved for the main agent");
+    s.enqueue("Also compare buses", undefined, root.id);
+    const calls = bridge.invoke.mock.calls.filter(([command]) => command === "workflow_author_run");
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toMatchObject({ purpose: "session_title", agentId: root.agent });
+    expect(calls[0][1].stdinText).toContain("sleeper trains");
+    expect(calls[0][1].stdinText).not.toMatch(/reserved for|compare buses/);
+    if (manual) s.renameSession(root.id, "Night trains");
+    complete({ code: 0, stdout: '{"title":"European sleeper fares"}' });
+    await vi.waitFor(() => expect(useStore.getState().conversations[0].sessionTitle).toBe(manual ? "Night trains" : "European sleeper fares"));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(useStore.getState().conversations[0]).toMatchObject({
+      title: "Research project", sessionTitle: manual ? "Night trains" : "European sleeper fares",
+    });
+    s.enqueue("One more detail", undefined, root.id);
+    expect(bridge.invoke.mock.calls.filter(([command]) => command === "workflow_author_run")).toHaveLength(1);
+  });
+});
+
 describe("conversation deletion", () => {
   it("removes the chat, selects the next chat, and persists the new list", async () => {
     const { useStore } = await import("./store");

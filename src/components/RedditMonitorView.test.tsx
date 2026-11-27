@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { TooltipProvider } from "../shared/ui";
 import { renderToStaticMarkup } from "react-dom/server";
 import { emptyState, type Match } from "@nextbrowser-oss/reddit-monitoring";
 import { emptyRedditMonitorFeed, withPass } from "../lib/redditmonitor/feed";
@@ -6,6 +9,7 @@ import type { SkillEntry } from "../skillsCatalog";
 import { RedditMonitorView } from "./RedditMonitorView";
 
 const fixture = vi.hoisted(() => ({ state: {} as Record<string, unknown> }));
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 vi.mock("../store", () => ({ useStore: (select: (s: unknown) => unknown) => select(fixture.state) }));
 vi.mock("../electronBridge", () => ({ invoke: vi.fn() }));
 
@@ -59,9 +63,14 @@ describe("RedditMonitorView", () => {
   });
 
   it("will not start with nothing to watch", () => {
+    vi.useFakeTimers();
     fixture.state.redditMonitorState = emptyState({ watchInbox: false });
-    const html = renderToStaticMarkup(<RedditMonitorView entry={entry} />);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="Add a keyword or a community first"/);
+    render(<TooltipProvider><RedditMonitorView entry={entry} /></TooltipProvider>);
+    const start = screen.getByRole("button", { name: "Start" }) as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
+    fireEvent.pointerOver(start);
+    act(() => vi.advanceTimersByTime(180));
+    expect(screen.getByRole("tooltip").textContent).toBe("Add a keyword or a community first");
   });
 
   it("lists matches with their urgency and reasons, and hands one to the reply agent", () => {

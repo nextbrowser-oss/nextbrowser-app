@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { GUIDE_FEATURE_GROUPS } from "../lib/guideFeatures";
+import { isUtilityDialogTab } from "../lib/appNavigation";
 import { GUIDE_USAGE_DEMOS } from "./GuideUsageDemos";
 
 vi.mock("../store", () => ({ useStore: vi.fn() }));
@@ -33,7 +34,7 @@ describe("Guide links", () => {
     expect(sent.filter((name) => !heard.includes(name))).toEqual([]);
   });
 
-  it("only opens views the app renders", () => {
+  it("only opens views or utility dialogs the app renders", () => {
     const special = new Set(["account", "agent", "profiles", "start_session", "identity"]);
     const tabs = new Set([
       ...GUIDE_FEATURE_GROUPS.flatMap((group) => group.features.map((feature) => feature.action)).filter((action) => !special.has(action)),
@@ -42,7 +43,7 @@ describe("Guide links", () => {
     const app = read("App.tsx");
 
     expect([...tabs]).toEqual(expect.arrayContaining(["chat", "live", "scheduled", "skills", "usage"]));
-    expect([...tabs].filter((tab) => !app.includes(`tab === "${tab}"`))).toEqual([]);
+    expect([...tabs].filter((tab) => !isUtilityDialogTab(tab) && !app.includes(`tab === "${tab}"`))).toEqual([]);
   });
 
   it("names only well-formed https pages in example prompts", () => {

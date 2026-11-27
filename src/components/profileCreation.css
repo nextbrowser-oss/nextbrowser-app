@@ -1,0 +1,30 @@
+.shared-dialog.profile-create-dialog {
+  width: min(420px, calc(100vw - 32px));
+  height: min(507px, calc(100dvh - 48px));
+  --field-surface: var(--surface-2);
+  --field-text: var(--dialog-text);
+}
+.profile-create-form { display: grid; gap: 14px; min-width: 0; }
+.profile-create-dialog .shared-dialog-body { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.profile-create-form .modal-field { display: grid; gap: 5px; margin: 0; min-width: 0; }
+.profile-create-form .profile-name-primary { padding: 0; border: 0; background: none; }
+.profile-create-form .modal-field > span, .profile-create-form .profile-remote-heading {
+  color: var(--dialog-muted); font: 500 12px/1.4 var(--font-ui); text-transform: none; letter-spacing: normal;
+}
+.profile-create-form .profile-workspace-context { display: flex; padding: 0; border: 0; background: none; }
+.profile-create-form .profile-workspace-context strong { text-align: start; }
+.profile-create-form .shared-select-trigger {
+  min-height: 34px; padding: 7px 9px; border: 0; border-radius: 8px;
+  background: var(--field-surface); box-shadow: none; color: var(--field-text); font: inherit; font-size: 13px;
+}
+.profile-create-form .shared-select-trigger:hover:not(:disabled) { background: var(--surface-3); }
+.profile-create-form .shared-select-trigger:focus-visible { outline-color: var(--accent); }
+.profile-create-form .shared-select-trigger > span, .profile-create-form .shared-command-list__option strong {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.profile-create-form .shared-select [aria-hidden="true"]:has(> svg, > img) { display: inline-flex; flex: none; }
+.profile-create-form .shared-command-list__option:has(strong [aria-hidden]) > span { padding-inline-start: 24px; }
+.profile-create-form .profile-add-proxy { display: inline-flex; align-items: center; gap: 4px; justify-self: start; }
+.profile-create-form .profile-remote-section { margin: 0; padding: 0; border: 0; background: none; }
+.profile-create-form .profile-multilogin-panel, .profile-create-form .modal-actions { margin: 0; }
+.shared-dialog-overlay:has(> .profile-create-dialog) ~ .modal-overlay:has(> .manual-proxy-modal) { z-index: 201; }

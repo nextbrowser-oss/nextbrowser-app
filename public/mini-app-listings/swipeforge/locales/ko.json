@@ -1,0 +1,13 @@
+{
+  "description": "SwipeForge로 AI 영상, 이미지, 게시물을 만들고 소셜 계정에 게시합니다.",
+  "useCases": [
+    "텍스트로 영상, 이미지, 게시물, 내레이션을 생성합니다.",
+    "렌더링 진행을 확인하고 TikTok, Instagram, YouTube, X에 게시합니다."
+  ],
+  "requirements": "Nextbrowser 계정으로 로그인합니다. 생성 한도는 SwipeForge 레벨에 따릅니다. 게시물은 승인한 뒤에만 올라갑니다.",
+  "example": "5초 세로 영상 만들어 줘: 비 오는 네온 거리 위 종이배.",
+  "screenshots": {
+    "workspace.png": "영상 만들기",
+    "connect.png": "SwipeForge 연결"
+  }
+}

@@ -43,7 +43,7 @@ class FakePeerConnection {
   }
 
   addTransceiver() {
-    return {};
+    return { receiver: { jitterBufferTarget: null } };
   }
 
   createDataChannel() {

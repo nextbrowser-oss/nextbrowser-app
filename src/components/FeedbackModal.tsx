@@ -1,110 +1,90 @@
-import { useEffect, useState } from "react";
+import { translate } from "../shared/lib/i18n";
+import { useRef, useState } from "react";
+import { Angry, Frown, Laugh, Meh, Smile } from "lucide-react";
 import { invoke } from "../electronBridge";
 import { feedbackErrorMessage } from "../lib/feedbackError";
-import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
+import { Button, Dialog } from "../shared/ui";
 import { Icon, Spinner } from "./Icon";
+import "./feedback.css";
 
-const RATING_LABELS = ["Very poor", "Poor", "Okay", "Good", "Excellent"];
+const RATINGS = [
+  { get label() { return translate("Very poor"); }, Face: Angry },
+  { get label() { return translate("Poor"); }, Face: Frown },
+  { get label() { return translate("Okay"); }, Face: Meh },
+  { get label() { return translate("Good"); }, Face: Smile },
+  { get label() { return translate("Excellent"); }, Face: Laugh },
+];
+const NOTE_LIMIT = 2_000;
 
 export function FeedbackModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted?: (rating: number) => void }) {
   const [rating, setRating] = useState(0);
-  const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [error, setError] = useState("");
-  const displayedRating = hoverRating ?? rating;
-
-  useEffect(() => {
-    const dismiss = (event: KeyboardEvent) => {
-      if (!shouldDismissModalWithEscape(event) || status === "sending") return;
-      event.preventDefault();
-      onClose();
-    };
-    window.addEventListener("keydown", dismiss);
-    return () => window.removeEventListener("keydown", dismiss);
-  }, [onClose, status]);
+  const pending = useRef(false);
+  const sending = status === "sending";
 
   const submit = async () => {
-    if (!rating || status === "sending") return;
+    if (!rating || pending.current || status !== "idle") return;
+    pending.current = true;
     setStatus("sending");
     setError("");
     try {
       await invoke("feedback_submit", { rating, comment });
-      setStatus("sent");
-      onSubmitted?.(rating);
     } catch (cause) {
+      pending.current = false;
       setStatus("idle");
       setError(feedbackErrorMessage(cause));
+      return;
     }
+    setStatus("sent");
+    onSubmitted?.(rating);
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={status === "sending" ? undefined : onClose}>
-      <section className="modal-card feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="modal-title-row">
-          <Icon name="bubble.left.and.bubble.right.fill" size={18} />
-          <div>
-            <strong id="feedback-title">How is Nextbrowser?</strong>
-            <div className="muted small">Your signed-in email, rating, and note go directly to the product team.</div>
+    <Dialog title={translate("Feedback")} className="feedback-dialog" onClose={onClose} dismissible={!sending}>
+      {status === "sent" ? (
+        <div className="feedback-confirmation">
+          <div className="feedback-receipt" role="status">
+            <span className="feedback-receipt-icon"><Icon name="checkmark.circle.fill" size={30} /></span>
+            <h3>{translate("Thanks for your feedback!")}</h3>
+            <p>{translate("The Nextbrowser team received your response.")}</p>
           </div>
-          <span className="spacer" />
-          {status !== "sending" && <button className="plain-icon-btn" autoFocus onClick={onClose} aria-label="Close feedback"><Icon name="xmark" size={16} /></button>}
+          <Button className="primary" autoFocus onClick={onClose}>{translate("Done")}</Button>
         </div>
-        {status === "sent" ? (
-          <div className="feedback-success" role="status">
-            <Icon name="checkmark.circle.fill" size={30} className="ok" />
-            <strong>Thank you — your feedback was sent.</strong>
-            <p className="muted small">It helps us decide what to improve next.</p>
-            <button className="primary" onClick={onClose}>Done</button>
-          </div>
-        ) : (
-          <>
-            <div
-              className="feedback-rating"
-              role="radiogroup"
-              aria-label="Rate Nextbrowser from one to five"
-              onMouseLeave={() => setHoverRating(null)}
-            >
-              {RATING_LABELS.map((label, index) => {
-                const value = index + 1;
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    role="radio"
-                    aria-checked={rating === value}
-                    className={
-                      "feedback-star" +
-                      (value <= displayedRating ? " is-preview" : "") +
-                      (hoverRating === null && value <= rating ? " is-selected" : "") +
-                      (value === hoverRating ? " is-hovered" : "")
-                    }
-                    onMouseEnter={() => setHoverRating(value)}
-                    onFocus={() => setHoverRating(value)}
-                    onBlur={() => setHoverRating(null)}
-                    onClick={() => setRating(value)}
-                    title={`${value}: ${label}`}
-                  >
-                    <Icon name="star.fill" size={26} fill="currentColor" />
-                  </button>
-                );
-              })}
+      ) : (
+        <form className="feedback-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
+          <fieldset className="feedback-rating" disabled={sending}>
+            <legend>{translate("How was your experience?")}</legend>
+            <div className="feedback-options">
+              {RATINGS.map(({ label, Face }, index) => (
+                <label className="feedback-choice" key={label}>
+                  <input type="radio" name="feedback-rating" value={index + 1} checked={rating === index + 1}
+                    onChange={() => setRating(index + 1)} />
+                  <Face aria-hidden="true" size={25} strokeWidth={1.7} />
+                  <span>{label}</span>
+                </label>
+              ))}
             </div>
-            <div className="feedback-rating-label">{displayedRating ? `${displayedRating}/5 · ${RATING_LABELS[displayedRating - 1]}` : "Choose a rating"}</div>
-            <label className="feedback-comment">
-              <span>Tell us more <em>(optional)</em></span>
-              <textarea value={comment} maxLength={2_000} rows={4} placeholder="What worked well, or what should we improve?" onChange={(event) => setComment(event.target.value)} />
-              <small>{comment.length} / 2000</small>
-            </label>
-            {error && <p className="error small feedback-error" role="alert">{error}</p>}
-            <div className="modal-actions">
-              <button className="secondary" onClick={onClose} disabled={status === "sending"}>Cancel</button>
-              <span className="spacer" />
-              <button className="primary" onClick={() => void submit()} disabled={!rating || status === "sending"}>{status === "sending" ? <><Spinner size={13} /> Sending…</> : "Send feedback"}</button>
-            </div>
-          </>
-        )}
-      </section>
-    </div>
+          </fieldset>
+          <label className="feedback-note">
+            <span className="feedback-note-heading">{translate("Anything to add?")} <small>{translate("Optional")}</small></span>
+            <span className="feedback-note-box">
+              <textarea rows={3} maxLength={NOTE_LIMIT} value={comment} disabled={sending}
+                placeholder={translate("What worked well? What could be better?")} onChange={event => setComment(event.target.value)} />
+              {comment.length > 0 && <small className="feedback-count" aria-hidden="true">{comment.length} / {NOTE_LIMIT}</small>}
+            </span>
+          </label>
+          {error && <p className="feedback-error" role="alert">{error}</p>}
+          <footer className="feedback-footer">
+            <p>{translate("Your account email is shared with the Nextbrowser team.")}</p>
+            <Button type="submit" className="primary" disabled={!rating || sending}>
+              {sending ? <Spinner size={15} /> : <Icon name="paperplane.fill" size={15} />}
+              {sending ? translate("Sending…") : translate("Send feedback")}
+            </Button>
+          </footer>
+        </form>
+      )}
+    </Dialog>
   );
 }

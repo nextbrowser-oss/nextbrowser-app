@@ -1163,7 +1163,7 @@ describe("Live View runtime selection", () => {
     await useStore.getState().startRemoteStream({ runtime: "clawbrowser", profile: "work" });
 
     expect(bridge.invoke).toHaveBeenCalledWith("nextctl_run", {
-      args: ["remote", "--profile", "work", "--include-viewer-url", "--format", "json"],
+      args: ["remote", "--profile", "work", "--quality", "78", "--max-width", "1600", "--max-height", "900", "--include-viewer-url", "--format", "json"],
       extraEnv: null,
       requestId: undefined,
       timeoutMs: 60_000,

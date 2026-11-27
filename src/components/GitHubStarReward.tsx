@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useState } from "react";
 import { invoke } from "../electronBridge";
 import { trackEvent } from "../lib/analytics";
@@ -53,19 +54,13 @@ function GitHubStarCopy({ status }: { status: GitHubStarStatus }) {
   const reward = githubStarRewardLabel(status);
   if (status.revoked) {
     return (
-      <p className="github-star-copy">
-        Your proxy traffic is paused at what you've already used. Star{" "}
-        <strong>{githubStarRepoName(status)}</strong> again and check it here to get the rest of
-        your {reward} back.
-      </p>
+      <p className="github-star-copy">{translate("Your proxy traffic is paused at what you've already used. Star")}{" "}
+        <strong>{githubStarRepoName(status)}</strong> {translate("again and check it here to get the rest of your")} {reward} {translate("back.")}</p>
     );
   }
   return (
-    <p className="github-star-copy">
-      Accounts that sign in with GitHub start with 1 MB of proxy traffic. Star{" "}
-      <strong>{githubStarRepoName(status)}</strong> on GitHub, check it here, and your limit goes
-      up to {reward} of free proxy traffic.
-    </p>
+    <p className="github-star-copy">{translate("Accounts that sign in with GitHub start with 1 MB of proxy traffic. Star")}{" "}
+      <strong>{githubStarRepoName(status)}</strong> {translate("on GitHub, check it here, and your limit goes up to")} {reward} {translate("of free proxy traffic.")}</p>
   );
 }
 
@@ -118,15 +113,11 @@ export function GitHubStarModal({ suppressed = false }: { suppressed?: boolean }
           </div>
         )}
         <div className="modal-actions">
-          <button className="btn-bordered" type="button" onClick={() => setOpen(false)} disabled={checking}>
-            Later
-          </button>
+          <button className="btn-bordered" type="button" onClick={() => setOpen(false)} disabled={checking}>{translate("Later")}</button>
           <button className="btn-bordered" type="button" onClick={() => openRepo(status)}>
-            <Icon name="star" size={13} />
-            Open GitHub
-          </button>
+            <Icon name="star" size={13} />{translate("Open GitHub")}</button>
           <button className="primary" type="button" autoFocus onClick={() => void check()} disabled={checking}>
-            {checking ? "Checking..." : "I starred it, check"}
+            {checking ? "Checking..." : translate("I starred it, check")}
           </button>
         </div>
       </section>
@@ -155,11 +146,9 @@ export function GitHubStarCard() {
       )}
       <div className="github-star-card-actions">
         <button className="btn-bordered" type="button" onClick={() => openRepo(status)}>
-          <Icon name="star" size={13} />
-          Open GitHub
-        </button>
+          <Icon name="star" size={13} />{translate("Open GitHub")}</button>
         <button className="btn-bordered-prominent" type="button" onClick={() => void check()} disabled={checking}>
-          {checking ? "Checking..." : "I starred it, check"}
+          {checking ? "Checking..." : translate("I starred it, check")}
         </button>
       </div>
     </div>

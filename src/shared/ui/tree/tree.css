@@ -1,0 +1,39 @@
+.shared-tree-root { display: flex; flex-direction: column; min-height: 0; color: inherit; font: inherit; font-size: 12px; }
+.shared-tree-search { display: flex; align-items: center; gap: 4px; padding: 2px 2px 5px; flex: none; }
+.shared-tree-searchInput, .shared-tree-renameInput, .shared-tree-tagInput { flex: 1; min-width: 0; min-height: 28px; padding: 4px 7px; border: 0; border-radius: 7px; background: var(--glass-inverse-control); color: inherit; box-shadow: none; font: inherit; outline: none; }
+.shared-tree-searchInput::placeholder { color: inherit; opacity: .6; }
+.shared-tree-searchInput:focus-visible, .shared-tree-renameInput:focus-visible { outline: 1px solid currentColor; outline-offset: -1px; }
+.shared-tree-list { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; }
+.shared-tree-list::-webkit-scrollbar { display: none; }
+.shared-tree-row { display: flex; align-items: center; gap: 5px; min-height: 29px; width: 100%; box-sizing: border-box; padding: 2px 5px; border: 0; border-radius: 7px; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.shared-tree-row[draggable="true"] { cursor: grab; }
+.shared-tree-row:hover, .shared-tree-row[data-selected="true"], .shared-tree-row[data-checked="true"] { background: color-mix(in srgb, currentColor 14%, transparent); }
+.shared-tree-row[data-dragging="true"] { opacity: .4; }
+.shared-tree-row[data-drop="inside"] { outline: 2px solid currentColor; outline-offset: -2px; background: color-mix(in srgb, currentColor 14%, transparent); }
+.shared-tree-row[data-drop="before"] { box-shadow: inset 0 2px 0 currentColor; }
+.shared-tree-row[data-drop="after"] { box-shadow: inset 0 -2px 0 currentColor; }
+.shared-tree-row:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+.shared-tree-row[aria-expanded] > .shared-tree-label { font-weight: 700; }
+.shared-tree-switcher, .shared-tree-switcherPlaceholder, .shared-tree-icon { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 16px; flex: none; color: inherit; }
+.shared-tree-switcher { cursor: pointer; }
+.shared-tree-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shared-tree-meta { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.shared-tree-match { background: var(--glass-inverse-control-hover); color: inherit; border-radius: 2px; }
+.shared-tree-checkbox { width: 13px; height: 13px; accent-color: var(--accent); }
+.shared-tree-empty { padding: 12px 7px; opacity: .65; font: inherit; }
+.shared-tree-menu, .shared-tree-submenu { position: fixed; z-index: 9100; min-width: 180px; padding: 5px; border-radius: var(--glass-radius); background: var(--glass-inverse-bg); color: var(--glass-inverse-text); backdrop-filter: var(--glass-filter); box-shadow: var(--glass-inverse-shadow); }
+.shared-tree-submenu { position: absolute; left: 100%; top: 0; }
+.shared-tree-menuButton, .shared-tree-confirmButton, .shared-tree-suggestItem, .shared-tree-filterButton, .shared-tree-facetPill, .shared-tree-facetReset { display: flex; align-items: center; gap: 5px; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; box-shadow: none; font: inherit; }
+.shared-tree-menuButton { width: 100%; text-align: left; }
+.shared-tree-menuButton:hover, .shared-tree-suggestItem:hover, .shared-tree-facetPill[data-on="true"] { background: var(--glass-inverse-control-hover); color: inherit; }
+.shared-tree-menuButton[data-danger="true"], .shared-tree-confirmButton { color: var(--red); }
+.shared-tree-menuShortcut { margin-left: auto; opacity: .65; font-size: 10px; }
+.shared-tree-menuDivider { height: 1px; margin: 4px 0; background: var(--glass-inverse-control); }
+.shared-tree-confirmRow, .shared-tree-facetPills, .shared-tree-tagChips { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.shared-tree-filterPanel, .shared-tree-facetGroup, .shared-tree-tagFacet { display: grid; gap: 5px; padding: 5px; }
+.shared-tree-facetGroupLabel { font-size: 10px; opacity: .65; }
+.shared-tree-tagChip { display: inline-flex; align-items: center; gap: 3px; border-radius: 7px; padding: 3px 5px; background: var(--glass-inverse-control); }
+.shared-tree-tagChipRemove { padding: 0; border: 0; background: transparent; color: inherit; }
+.shared-tree-tagInputWrap { position: relative; }
+.shared-tree-suggest { position: absolute; z-index: 1; width: 100%; padding: 4px; border-radius: 7px; background: var(--glass-inverse-solid); }
+@media (prefers-reduced-transparency: reduce) { .shared-tree-menu, .shared-tree-submenu { background: var(--glass-inverse-solid); backdrop-filter: none; } }

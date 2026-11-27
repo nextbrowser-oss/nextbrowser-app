@@ -1,0 +1,120 @@
+.chat-live-workspace, .live-side-pane, .live-side-chat, .live-browser-pane { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.live-side-pane, .live-side-chat, .live-browser-pane { flex-direction: column; }
+.chat-live-workspace[hidden], .chat-live-workspace [hidden]:is(.live-side-chat, .live-browser-pane, .live-side-projects) { display: none; }
+.chat-live-workspace[data-live] .live-side-pane { container: live-thread / inline-size; }
+.live-browser-pane { flex: 0 0 var(--live-share, 52%); overflow: hidden; }
+.live-side-toolbar { display: flex; min-width: 0; padding: 8px; }
+.live-workspace-pill, .live-workspace-tabs { display: flex; align-items: center; gap: var(--pill-gap); }
+.live-workspace-pill { --pill-gap: 4px; max-width: 100%; min-width: 0; padding: var(--pill-gap); border-radius: var(--glass-radius); }
+.live-workspace-tabs, .live-workspace-pill > .shared-icon-button { flex: none; }
+.live-workspace-tabs button, .live-workspace-pill > .shared-icon-button, .session-name-trigger {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 26px;
+  padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer;
+}
+.live-workspace-tabs button[aria-selected="true"], .live-workspace-pill > button[aria-pressed="true"],
+.live-workspace-tabs button:hover, .session-name-trigger:hover { background: var(--glass-inverse-control); }
+.session-name-trigger span, .session-name-empty, .chat-project-title > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-name-trigger svg { flex: none; }
+.session-name-empty { padding-inline: 8px; font-size: 12px; }
+.session-name-form { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.session-name-form input { width: 15ch; flex: 1 1 auto; min-width: 0; height: 26px; padding-inline: 6px; font: inherit; font-size: 12px; }
+.session-name-form .shared-icon-button { flex: none; }
+.live-workspace-pill button:focus-visible, .session-name-trigger:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+@container live-thread (max-width: 320px) {
+  .live-workspace-pill { flex-wrap: wrap; }
+  .live-workspace-pill > :is(.session-name-form, .session-name-trigger) { max-width: 100%; }
+}
+.live-side-projects { flex: 1; padding: 8px; }
+.live-splitter { display: grid; place-items: center; flex: 0 0 9px; touch-action: none; cursor: col-resize; }
+.live-splitter::after { content: ""; width: 2px; height: 36px; border-radius: 2px; background: var(--line-strong); }
+.live-splitter:is(:hover, :focus-visible, [data-resizing])::after { height: 52px; background: var(--accent-text); }
+.chat-live-workspace:has(.live-splitter[data-resizing]) { user-select: none; cursor: col-resize; }
+.chat-live-workspace:has(.live-splitter[data-resizing]) .remote-live-webview { pointer-events: none; }
+@container live-thread (max-width: 480px) {
+  .live-side-chat .chat-header { left: 10px; right: 10px; gap: 4px; }
+  .live-side-chat .chat-project-title { max-width: 38%; }
+  .live-side-chat .chat-composer-dock { width: calc(100% - 16px); }
+  .live-side-chat .composer-actions .shared-icon-button--labelled > span { display: none; }
+}
+
+.live { position: relative; overflow: hidden; }
+.live .remote-live-stage { display: grid; position: relative; padding: 0; }
+.live .remote-live-embed, .live .remote-live-webview {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+}
+.live .remote-live-embed:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.live-detached-body { margin: 0; }
+.live-detached { height: 100dvh; }
+.live-detached .live-return-button { position: absolute; z-index: 2; bottom: 16px; left: 16px; border-radius: 999px; }
+.live-browser-toolbar { flex: none; min-width: 0; padding: 4px 10px 8px; background: var(--panel); }
+.live-browser-tab-row, .live-browser-tabs, .live-browser-address { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.live-browser-tabs { overflow: auto; }
+.live-browser-tab {
+  display: flex;
+  align-items: center;
+  min-width: 92px;
+  max-width: 200px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+.live-browser-tab[data-active] { background: var(--accent-soft); color: var(--accent-text); }
+.live-browser-tab > button:first-child {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.live-browser-tab .shared-icon-button { flex: none; margin-inline-end: 2px; width: 24px; height: 24px; }
+.live-browser-address { margin-top: 4px; }
+.live-browser-address input { flex: 1; min-width: 0; padding: 6px 12px; border-radius: 16px; }
+.live-browser-address input[aria-invalid] { border-color: var(--warn); }
+.live-browser-address-error { font-size: 12px; color: var(--warn); }
+.live:has(.live-browser-toolbar) > .live-input-warning { top: auto; bottom: 16px; }
+
+.live-controls-layer { position: absolute; inset: 0; z-index: 13; pointer-events: none; }
+.live-controls-layer .live-controls-trigger {
+  position: absolute;
+  left: calc(var(--live-button-margin, 16px) + var(--live-button-x, 0) * max(0px, 100% - 2 * var(--live-button-margin, 16px) - var(--live-button-size, 40px)));
+  top: calc(var(--live-button-margin, 16px) + var(--live-button-y, 1) * max(0px, 100% - 2 * var(--live-button-margin, 16px) - var(--live-button-size, 40px)));
+  width: var(--live-button-size, 40px);
+  height: var(--live-button-size, 40px);
+  border-radius: 50%;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  touch-action: none;
+  cursor: grab;
+}
+.live-controls-layer .live-controls-trigger[data-dragging] { cursor: grabbing; }
+.shared-popover.live-controls-panel { z-index: 90; width: 335px; padding: 10px; border-radius: var(--glass-radius); }
+.live-controls-panel .live-controls { padding: 0; margin-block: 8px; flex-wrap: nowrap; }
+.live-controls-panel .shared-select { flex: 1; min-width: 0; }
+.live-controls-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.live-controls-panel .live-pill { background: var(--glass-inverse-control); color: inherit; }
+.live-controls-actions .btn-bordered { color: inherit; background: var(--glass-inverse-control); border-color: transparent; }
+.live-input-warning {
+  position: absolute;
+  z-index: 1;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--glass-inverse-solid);
+  color: var(--glass-inverse-text);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* macOS native Live: the app window is transparent and the local browser
+   window lies below it; see src/lib/liveWindowHole.ts. */
+:root[data-live-hole] body { background: transparent; }
+:root[data-live-hole] .desktop-shell { clip-path: var(--live-hole); }

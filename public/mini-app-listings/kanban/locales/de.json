@@ -1,0 +1,13 @@
+{
+  "description": "Aufgabenboard mit den Spalten To do, In progress und Done.",
+  "useCases": [
+    "Aufgaben in drei Spalten führen und je nach Fortschritt verschieben.",
+    "Der Agent kann Aufgaben anlegen, Notizen bearbeiten und Karten verschieben."
+  ],
+  "requirements": "Aufgaben werden lokal in deinem Nextbrowser-Konto gespeichert. Keine weitere Anmeldung nötig.",
+  "example": "Verschieb die Release-Checkliste nach In progress.",
+  "screenshots": {
+    "board.png": "Board mit Beispielaufgaben",
+    "editor.png": "Aufgabeneditor"
+  }
+}

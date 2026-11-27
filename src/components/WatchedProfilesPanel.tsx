@@ -1,3 +1,5 @@
+import { translate } from "../shared/lib/i18n";
+import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { useStore, X_REPLY_LOG_FILE } from "../store";
 import { invoke } from "../electronBridge";
@@ -224,16 +226,16 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
   const add = () => {
     const handle = normalizeWatchHandle(draft, { maxLength: watchlist.handleMaxLength });
     if (!handle) {
-      setError(`Enter one ${watchlist.placeholder}.`);
+      setError(translate("Enter one %1.", watchlist.placeholder));
       return;
     }
     const known = profiles.some((item) => item.handle.toLowerCase() === handle.toLowerCase());
     addWatchedProfile(entry.id, handle);
     setDraft("");
-    if (known) setError(`${prefix}${handle} is already on the list.`);
+    if (known) setError(translate("%1%2 is already on the list.", prefix, handle));
     // An engine-backed skill only subscribes the account when a browser profile
     // is available. Say so instead of adding it silently and never subscribing.
-    else if (engine && !profileAvailable) setError(`Choose a browser profile for this skill to subscribe ${prefix}${handle}.`);
+    else if (engine && !profileAvailable) setError(translate("Choose a browser profile for this skill to subscribe %1%2.", prefix, handle));
     else setError("");
     // Confirming an account subscribes it there and then: the bell goes on and
     // the account's current position is recorded, so the first pass answers what
@@ -259,28 +261,28 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             <span className="muted small">
               {monitoring
                 ? monitor.engine === "reddit-monitor"
-                  ? (redditMonitorAccount?.signedIn && redditMonitorAccount.handle ? `u/${redditMonitorAccount.handle} · monitoring` : "Mentions and keywords")
+                  ? (redditMonitorAccount?.signedIn && redditMonitorAccount.handle ? translate("u/%1 · monitoring", redditMonitorAccount.handle) : translate("Mentions and keywords"))
                   : social
-                    ? (socialAccount?.signedIn && socialAccount.handle ? `${social.handlePrefix}${socialAccount.handle} · monitoring` : "Mentions, comments and content")
-                  : (signedIn && publisher?.handle ? `${prefix}${publisher.handle} · monitoring` : "Feed and followers")
+                    ? (socialAccount?.signedIn && socialAccount.handle ? translate("%1%2 · monitoring", social.handlePrefix, socialAccount.handle) : translate("Mentions, comments and content"))
+                  : (signedIn && publisher?.handle ? translate("%1%2 · monitoring", prefix, publisher.handle) : translate("Feed and followers"))
                 : signedIn && publisher?.handle
-                  ? `${prefix}${publisher.handle} · ${activeCount} watched`
-                  : `${activeCount || "No"} watched`}
+                  ? translate("%1%2 · %3 watched", prefix, publisher.handle, activeCount)
+                  : translate("%1 watched", activeCount || "No")}
             </span>
           </div>
           <span className="spacer" />
           {!engine && (
-            <button className="plain-icon-btn" title="Reload what the agent recorded" onClick={() => void loadWatchReports(entry)}>
+            <Tooltip content={translate("Reload what the agent recorded")}><button className="plain-icon-btn" onClick={() => void loadWatchReports(entry)}>
               <Icon name="arrow.clockwise" size={15} />
-            </button>
+            </button></Tooltip>
           )}
-          <button className="plain-icon-btn" onClick={onClose} aria-label="Close watched profiles">
+          <button className="plain-icon-btn" onClick={onClose} aria-label={translate("Close watched profiles")}>
             <Icon name="xmark" size={15} />
           </button>
         </div>
 
         {monitor && !monitorOnly && (
-          <div className="skill-mode-switch" role="tablist" aria-label="What this skill does">
+          <div className="skill-mode-switch" role="tablist" aria-label={translate("What this skill does")}>
             {([["reply", monitor.replyLabel], ["monitor", monitor.label]] as const).map(([value, label]) => (
               <button
                 key={value}
@@ -301,18 +303,16 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           : monitor.engine === "reddit-monitor" ? <RedditMonitorView entry={entry} /> : <XMonitorView entry={entry} />) : (<>
         {transports.length > 1 && (
           <div className="row watchlist-profile">
-            <label className="muted small">Runs on</label>
-            <div className="watchlist-transport" role="group" aria-label="Where a pass runs">
+            <label className="muted small">{translate("Runs on")}</label>
+            <div className="watchlist-transport" role="group" aria-label={translate("Where a pass runs")}>
               {transports.map((option) => (
-                <button
-                  key={option.id}
+                <Tooltip key={option.id} content={option.blurb ?? option.label}><button
                   className={"mini" + (option.id === transport?.id ? " selected" : "")}
                   aria-pressed={option.id === transport?.id}
-                  title={option.blurb ?? option.label}
                   onClick={() => setWatchlistTransport(entry, option.id)}
                 >
                   {option.label}
-                </button>
+                </button></Tooltip>
               ))}
             </div>
           </div>
@@ -320,55 +320,48 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
 
         {!engine && onDevice && (
           <div className="row watchlist-profile">
-            <label className="muted small">Phone</label>
-            <select
+            <label className="muted small">{translate("Phone")}</label>
+            <Tooltip content={translate("The cloud phone this skill runs its passes on")}><select
               value={watchlistDevice?.id ?? ""}
               disabled={watchlistBusy}
-              title="The cloud phone this skill runs its passes on"
               onChange={(event) => {
                 const phone = cloudPhones.find((item) => item.id === event.target.value);
                 setWatchlistDevice(entry, phone ? { kind: "mobile", ...phone } : undefined);
               }}
             >
-              <option value="">{cloudPhones.length ? "Pick a cloud phone" : "Connect Multilogin first"}</option>
+              <option value="">{cloudPhones.length ? translate("Pick a cloud phone") : translate("Connect Multilogin first")}</option>
               {cloudPhones.map((phone) => (
                 <option key={phone.id} value={phone.id}>{phone.name}</option>
               ))}
-            </select>
+            </select></Tooltip>
             <span className="spacer" />
             {/* There is no page to open and no password to type: the way into a
                 phone is its own screen, so this hands the user the screen. */}
-            <button className="mini" disabled={watchlistBusy || !watchlistDevice}
-              title="Open the phone screen and sign in to the Reddit app yourself"
-              onClick={() => void openSite(entry)}>
-              Open phone
-            </button>
+            <Tooltip content={translate("Open the phone screen and sign in to the Reddit app yourself")}><button className="mini" disabled={watchlistBusy || !watchlistDevice}
+              onClick={() => void openSite(entry)}>{translate("Open phone")}</button></Tooltip>
           </div>
         )}
 
         {!engine && signInConfig && !onDevice && (
           <div className="row watchlist-profile">
-            <label className="muted small">Profile</label>
-            <select
+            <label className="muted small">{translate("Profile")}</label>
+            <Tooltip content={translate("The browser profile this skill signs in and runs its passes with")}><select
               value={profileValue}
               disabled={watchlistBusy || run?.enabled}
-              title="The browser profile this skill signs in and runs its passes with"
               onChange={(event) => setWatchlistProfile(entry, event.target.value || undefined)}
             >
-              {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
+              {!profileAvailable && <option value="__choose_profile__" disabled>{translate("Choose a profile in this workspace")}</option>}
               {selectedInWorkspace && <option value="">{selectedLabel}</option>}
               {browserProfiles.map((profile) => (
                 <option key={profile.name} value={profile.name}>
                   {profile.name}{profile.country ? ` · ${profile.country.toUpperCase()}` : ""}
                 </option>
               ))}
-            </select>
+            </select></Tooltip>
             <span className="spacer" />
-            <button className="mini" disabled={watchlistBusy || !profileAvailable}
-              title={`Open ${site} in this profile to sign in or switch account`}
-              onClick={() => { armRecheck(); void openSite(entry); }}>
-              Open {site}
-            </button>
+            <Tooltip content={translate("Open %1 in this profile to sign in or switch account", site)}><button className="mini" disabled={watchlistBusy || !profileAvailable}
+              onClick={() => { armRecheck(); void openSite(entry); }}>{translate("Open")} {site}
+            </button></Tooltip>
           </div>
         )}
 
@@ -380,24 +373,23 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 ? <UserFacingError message={watchlistStep} surface="watchlist_step" />
                 : signedIn
                   ? (publisher?.handle
-                    ? `Signed in as ${signInConfig.handlePrefix ?? ""}${publisher.handle}`
-                    : `Signed in to ${site}`)
+                    ? translate("Signed in as %1%2", signInConfig.handlePrefix ?? "", publisher.handle)
+                    : translate("Signed in to %1", site))
                   : publisher
-                    ? `Not signed in to ${site}`
-                    : `Sign-in to ${site} not checked yet`}
+                    ? translate("Not signed in to %1", site)
+                    : translate("Sign-in to %1 not checked yet", site)}
             </span>
             <span className="spacer" />
-            <button className="mini" disabled={watchlistBusy || !profileAvailable}
-              title={`Read which account is signed in to ${site} in this profile`}
+            <Tooltip content={translate("Read which account is signed in to %1 in this profile", site)}><button className="mini" disabled={watchlistBusy || !profileAvailable}
               onClick={() => void checkWatchlistSignIn(entry)}>
-              {watchlistBusy ? "Checking…" : "Check"}
-            </button>
+              {watchlistBusy ? translate("Checking…") : translate("Check")}
+            </button></Tooltip>
           </div>
         )}
 
         {engine && (
           <div className="row watchlist-profile">
-            <label className="muted small">Profile</label>
+            <label className="muted small">{translate("Profile")}</label>
             <select
               value={profileValue}
               disabled={busy || run?.enabled}
@@ -408,7 +400,7 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 updateSettings({ profileName: name, publisher: undefined });
               }}
             >
-              {!profileAvailable && <option value="__choose_profile__" disabled>Choose a profile in this workspace</option>}
+              {!profileAvailable && <option value="__choose_profile__" disabled>{translate("Choose a profile in this workspace")}</option>}
               {selectedInWorkspace && <option value="">{selectedLabel}</option>}
               {browserProfiles.map((profile) => (
                 <option key={profile.name} value={profile.name}>
@@ -417,32 +409,30 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
               ))}
             </select>
             <span className="spacer" />
-            <button className="mini" disabled={busy || !profileAvailable} title={`Open ${site} in this profile to sign in or switch account`}
-              onClick={() => void openSkillSite(entry)}>
-              Open {site}
-            </button>
+            <Tooltip content={translate("Open %1 in this profile to sign in or switch account", site)}><button className="mini" disabled={busy || !profileAvailable}
+              onClick={() => void openSkillSite(entry)}>{translate("Open")} {site}
+            </button></Tooltip>
           </div>
         )}
 
         {requiresBrowserProfile && !profileAvailable && (
-          <p className="muted small" role="status">Choose a browser profile from this workspace before opening the site or starting checks.</p>
+          <p className="muted small" role="status">{translate("Choose a browser profile from this workspace before opening the site or starting checks.")}</p>
         )}
 
         {engine && (
           <div className="row watchlist-profile">
-            <label className="muted small">Source</label>
-            <select
+            <label className="muted small">{translate("Source")}</label>
+            <Tooltip content={translate("Where new posts are found: each watched profile's own timeline, or the signed-in account's notifications feed")}><select
               value={engineState.watchSource}
-              title="Where new posts are found: each watched profile's own timeline, or the signed-in account's notifications feed"
               onChange={(event) => updateSettings({ watchSource: event.target.value === "notifications" ? "notifications" : "profile" })}
             >
-              <option value="profile">Profile timelines</option>
-              <option value="notifications">Notifications feed</option>
-            </select>
+              <option value="profile">{translate("Profile timelines")}</option>
+              <option value="notifications">{translate("Notifications feed")}</option>
+            </select></Tooltip>
             <span className="muted small">
               {engineState.watchSource === "notifications"
-                ? "Checks the notifications feed for new posts. Turn on notifications for each watched account."
-                : "Checks each watched account for new posts at the interval below. No notifications needed."}
+                ? translate("Checks the notifications feed for new posts. Turn on notifications for each watched account.")
+                : translate("Checks each watched account for new posts at the interval below. No notifications needed.")}
             </span>
           </div>
         )}
@@ -460,21 +450,20 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
             />
           </div>
           <button className="btn-bordered-prominent" disabled={!draft.trim() || busy} onClick={add}>
-            <Icon name="plus" size={14} /> Add
-          </button>
+            <Icon name="plus" size={14} /> {translate("Add")}</button>
         </div>
         {error && <div className="small error watchlist-error">{error}</div>}
 
         {profiles.length === 0 ? (
           <div className="watchlist-empty">
             <span className="scheduled-empty-icon"><Icon name="person.crop.circle" size={22} /></span>
-            <strong>Nothing watched yet</strong>
+            <strong>{translate("Nothing watched yet")}</strong>
             <span className="muted small">
               {!engine
-                ? (blurb ?? "Add an account to watch.")
+                ? (blurb ?? translate("Add an account to watch."))
                 : engineState.watchSource === "notifications"
-                  ? `Add an account — its ${site} post notifications get switched on.`
-                  : `Add an account to check its ${site} profile for new posts at the interval below.`}
+                  ? translate("Add an account — its %1 post notifications get switched on.", site)
+                  : translate("Add an account to check its %1 profile for new posts at the interval below.", site)}
             </span>
           </div>
         ) : (
@@ -486,60 +475,55 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 <div key={profile.id} className={"watchlist-row" + (profile.enabled ? "" : " is-paused")}>
                   <div className="watchlist-avatar" aria-hidden>{profile.handle.slice(0, 1).toUpperCase()}</div>
                   <div className="watchlist-info">
-                    <button
+                    <Tooltip content={watchlist.profileUrl ? translate("Open the profile") : undefined}><button
                       className="watchlist-handle"
                       disabled={!watchlist.profileUrl}
-                      title={watchlist.profileUrl ? "Open the profile" : undefined}
                       onClick={() => openProfile(profile.handle)}
                     >
                       {prefix}{profile.handle}
                       {watchlist.profileUrl && <Icon name="arrow.up.right.square" size={11} />}
-                    </button>
+                    </button></Tooltip>
                     <div className="watchlist-chips">
-                      {!profile.enabled && <span className="watchlist-chip">Paused</span>}
-                      {working && <span className="watchlist-chip">Working…</span>}
+                      {!profile.enabled && <span className="watchlist-chip">{translate("Paused")}</span>}
+                      {working && <span className="watchlist-chip">{translate("Working…")}</span>}
                       {report?.notifications === true && (
-                        <span className="watchlist-chip ok"><Icon name="checkmark.seal.fill" size={11} /> Notifications on</span>
+                        <span className="watchlist-chip ok"><Icon name="checkmark.seal.fill" size={11} /> {translate("Notifications on")}</span>
                       )}
                       {report?.notifications === false && (
-                        <span className="watchlist-chip warn"><Icon name="exclamationmark.triangle.fill" size={11} /> Notifications off</span>
+                        <span className="watchlist-chip warn"><Icon name="exclamationmark.triangle.fill" size={11} /> {translate("Notifications off")}</span>
                       )}
                       {report?.following === false && (
-                        <span className="watchlist-chip warn"><Icon name="exclamationmark.triangle.fill" size={11} /> Not followed</span>
+                        <span className="watchlist-chip warn"><Icon name="exclamationmark.triangle.fill" size={11} /> {translate("Not followed")}</span>
                       )}
                       {report?.repliesSent != null && report.repliesSent > 0 && (
-                        <span className="watchlist-chip">{report.repliesSent} {report.repliesSent === 1 ? "reply" : "replies"}</span>
+                        <span className="watchlist-chip">{report.repliesSent} {report.repliesSent === 1 ? translate("reply") : translate("replies")}</span>
                       )}
-                      {report?.lastCheckedAt && <span className="watchlist-chip">Checked {since(report.lastCheckedAt)}</span>}
-                      {!report && !working && <span className="watchlist-chip">Not visited yet</span>}
+                      {report?.lastCheckedAt && <span className="watchlist-chip">{translate("Checked")} {since(report.lastCheckedAt)}</span>}
+                      {!report && !working && <span className="watchlist-chip">{translate("Not visited yet")}</span>}
                     </div>
                     {report?.note && <div className="muted small watchlist-note">{report.note}</div>}
                   </div>
                   <div className="watchlist-actions">
-                    <button
+                    <Tooltip content={!engine
+                        ? translate("Ask the agent to subscribe")
+                        : engineState.watchSource === "notifications"
+                          ? translate("Open this profile and turn on post notifications")
+                          : translate("Open this profile and record where it stands now")}><button
                       className="mini"
                       disabled={!profileAvailable || !ready || busy}
-                      title={!engine
-                        ? "Ask the agent to subscribe"
-                        : engineState.watchSource === "notifications"
-                          ? "Open this profile and turn on post notifications"
-                          : "Open this profile and record where it stands now"}
                       onClick={() => void (engine
                         ? withSignIn({ kind: "add", handle: profile.handle })
                         : subscribeWatchedProfile(entry, profile.id))}
-                    >
-                      Subscribe
-                    </button>
-                    <button
+                    >{translate("Subscribe")}</button></Tooltip>
+                    <Tooltip content={profile.enabled ? translate("Pause this account") : translate("Resume this account")}><button
                       className="plain-icon-btn"
-                      title={profile.enabled ? "Pause this account" : "Resume this account"}
                       onClick={() => setWatchedProfileEnabled(profile.id, !profile.enabled)}
                     >
                       <Icon name={profile.enabled ? "stop" : "play.circle"} size={15} />
-                    </button>
-                    <button className="plain-icon-btn" title="Remove from the list" onClick={() => removeWatchedProfile(profile.id)}>
+                    </button></Tooltip>
+                    <Tooltip content={translate("Remove from the list")}><button className="plain-icon-btn" onClick={() => removeWatchedProfile(profile.id)}>
                       <Icon name="trash" size={14} />
-                    </button>
+                    </button></Tooltip>
                   </div>
                 </div>
               );
@@ -550,22 +534,19 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
         {(pending || (engine && signInNeeded)) && (
           <div className="watchlist-signin">
             <div className="watchlist-signin-text">
-              <strong className="small"><Icon name="lock" size={13} /> Sign in to {site}</strong>
+              <strong className="small"><Icon name="lock" size={13} /> {translate("Sign in to")} {site}</strong>
               <div className="muted small">
                 {signInTried
-                  ? "Still signed out — finish in the browser window, then confirm."
-                  : `Opens ${site} in this profile. Sign in there, then confirm.`}
+                  ? translate("Still signed out — finish in the browser window, then confirm.")
+                  : translate("Opens %1 in this profile. Sign in there, then confirm.", site)}
               </div>
             </div>
             <div className="row watchlist-signin-actions">
-              <button className="mini" disabled={signInBusy} onClick={cancelSignIn}>Cancel</button>
+              <button className="mini" disabled={signInBusy} onClick={cancelSignIn}>{translate("Cancel")}</button>
               <span className="spacer" />
               <button className="btn-bordered" disabled={signInBusy || !profileAvailable} onClick={() => void openSite(entry)}>
-                <Icon name="arrow.up.right.square" size={13} /> Sign in
-              </button>
-              <button className="btn-bordered-prominent" disabled={signInBusy || !profileAvailable} onClick={() => void confirmSignedIn()}>
-                I'm signed in
-              </button>
+                <Icon name="arrow.up.right.square" size={13} /> {translate("Sign in")}</button>
+              <button className="btn-bordered-prominent" disabled={signInBusy || !profileAvailable} onClick={() => void confirmSignedIn()}>{translate("I'm signed in")}</button>
             </div>
           </div>
         )}
@@ -573,20 +554,20 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
         {engine && recentDrafts.length > 0 && (
           <div className="watchlist-drafts">
             <div className="row watchlist-drafts-head">
-              <strong className="small">Recent replies</strong>
+              <strong className="small">{translate("Recent replies")}</strong>
               <span className="spacer" />
               {/* There is no review step: a reply is written and published in
                   the same pass, and this list is what already went out. */}
-              <span className="muted small">Sent automatically</span>
+              <span className="muted small">{translate("Sent automatically")}</span>
             </div>
             {recentDrafts.map((item) => (
               <div key={item.id} className="watchlist-draft is-done">
                 <div className="watchlist-draft-head">
                   <span className="muted small">{prefix}{item.handle}</span>
                   <span className={"watchlist-chip " + (item.status === "sent" ? "ok" : "warn")}>{item.status}</span>
-                  {item.gif && <span className="watchlist-chip">GIF: {item.gif}</span>}
+                  {item.gif && <span className="watchlist-chip">{translate("GIF:")} {item.gif}</span>}
                   {item.replyUrl && (
-                    <button className="link small" onClick={() => void invoke("open_external", { url: item.replyUrl })}>Open</button>
+                    <button className="link small" onClick={() => void invoke("open_external", { url: item.replyUrl })}>{translate("Open")}</button>
                   )}
                 </div>
                 <div className="small watchlist-draft-text">{item.replyText}</div>
@@ -600,12 +581,12 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
           <div className="watchlist-loop-state">
             <span className={"status-dot " + (busy ? "warn-dot" : run?.enabled ? "ok-dot" : "muted-dot")} />
             <div>
-              <strong className="small">{busy ? "Working" : run?.enabled ? "Running" : "Stopped"}</strong>
+              <strong className="small">{busy ? translate("Working") : run?.enabled ? translate("Running") : translate("Stopped")}</strong>
               <div className="muted small">
                 {busy && step ? `${step}…`
                   : run?.enabled
-                    ? `Next check ${until(run.nextRunAt)}${engineState.lastPassSummary ? ` · ${engineState.lastPassSummary}` : ""}`
-                    : engineState.lastPassSummary || "Checks the list on a schedule while Nextbrowser is open."}
+                    ? translate("Next check %1%2", until(run.nextRunAt), engineState.lastPassSummary ? ` · ${engineState.lastPassSummary}` : "")
+                    : engineState.lastPassSummary || translate("Checks the list on a schedule while Nextbrowser is open.")}
               </div>
               {/* The counted summary says a post failed; only these say why, and
                   without them a broken pass is indistinguishable from a quiet one. */}
@@ -617,20 +598,15 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                   a read went wrong — it is what to send when the reasons do
                   not explain a pass. */}
               {engine && (
-                <button
+                <Tooltip content={translate("Reveal the engine's log file")}><button
                   className="link small"
-                  title="Reveal the engine's log file"
                   onClick={() => void invoke("app_data_reveal", { name: X_REPLY_LOG_FILE })}
-                >
-                  Show log
-                </button>
+                >{translate("Show log")}</button></Tooltip>
               )}
             </div>
           </div>
           <div className="row watchlist-loop-controls">
-            <label className="muted small watchlist-interval">
-              Every
-              <select
+            <label className="muted small watchlist-interval">{translate("Every")}<select
                 value={run?.enabled ? run.intervalMinutes : interval}
                 disabled={!profileAvailable}
                 onChange={(event) => {
@@ -640,15 +616,13 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                 }}
               >
                 {WATCHLIST_INTERVAL_CHOICES.map((minutes) => (
-                  <option key={minutes} value={minutes}>{minutes < 60 ? `${minutes} min` : `${minutes / 60} h`}</option>
+                  <option key={minutes} value={minutes}>{minutes < 60 ? translate("%1 min", minutes) : translate("%1 h", minutes / 60)}</option>
                 ))}
               </select>
             </label>
             {engine && (
-              <label className="muted small watchlist-limits"
-                title="Unused hourly budget carries over, up to the daily cap.">
-                Max
-                <input type="number" min={1} max={60} value={engineState.hourlyMax}
+              <Tooltip content={translate("Unused hourly budget carries over, up to the daily cap.")}><label className="muted small watchlist-limits"
+                >{translate("Max")}<input type="number" min={1} max={60} value={engineState.hourlyMax}
                   onChange={(event) => {
                     const value = Math.max(1, Math.min(60, Math.round(Number(event.target.value) || 1)));
                     updateSettings({ hourlyMax: value });
@@ -660,39 +634,32 @@ export function WatchedProfilesPanel({ entry, onClose }: { entry: SkillEntry; on
                     updateSettings({ dailyMax: value });
                   }} />
                 /day
-              </label>
+              </label></Tooltip>
             )}
             {engine && (
-              <span className="watchlist-chip" title="Replies that may go out right now — the stacked hourly budget, capped by the day.">
-                {replyBudget(engineState, Date.now())} ready
-              </span>
+              <Tooltip content={translate("Replies that may go out right now — the stacked hourly budget, capped by the day.")}><span className="watchlist-chip">
+                {replyBudget(engineState, Date.now())} {translate("ready")}</span></Tooltip>
             )}
             <span className="spacer" />
-            <button
+            <Tooltip content={translate("Run one pass now without starting the loop")}><button
               className="btn-bordered"
               disabled={!profileAvailable || !ready || busy || activeCount === 0 || run?.enabled}
-              title="Run one pass now without starting the loop"
               onClick={() => void runWatchlistPass(entry)}
-            >
-              Check once
-            </button>
+            >{translate("Check once")}</button></Tooltip>
             {run?.enabled ? (
-              <button className="btn-bordered" title="Stop the loop and the pass in progress" onClick={() => stopWatchlistRun(entry.id)}>
-                <Icon name="stop" size={14} /> Stop
-              </button>
+              <Tooltip content={translate("Stop the loop and the pass in progress")}><button className="btn-bordered" onClick={() => stopWatchlistRun(entry.id)}>
+                <Icon name="stop" size={14} /> {translate("Stop")}</button></Tooltip>
             ) : (
-              <button
+              <Tooltip content={translate("Check the watched profiles on this interval")}><button
                 className="btn-bordered-prominent"
                 disabled={!profileAvailable || !ready || busy || activeCount === 0}
-                title="Check the watched profiles on this interval"
                 onClick={() => void withSignIn({ kind: "start", minutes: interval })}
               >
-                <Icon name="play.fill" size={13} /> Start
-              </button>
+                <Icon name="play.fill" size={13} /> {translate("Start")}</button></Tooltip>
             )}
           </div>
         </div>
-        {!ready && <div className="muted small watchlist-hint">Connect an agent — it writes the replies.</div>}
+        {!ready && <div className="muted small watchlist-hint">{translate("Connect an agent — it writes the replies.")}</div>}
         </>)}
       </div>
     </div>

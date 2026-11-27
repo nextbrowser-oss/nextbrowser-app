@@ -1,0 +1,46 @@
+{
+  "apiVersion": 2,
+  "id": "music-player",
+  "name": "Music Player",
+  "version": "1.4.0",
+  "description": "Control music from your chat panel. Add a named account, then sign in and start a track in its service window.",
+  "icon": "music",
+  "permissions": [
+    "storage"
+  ],
+  "tools": [
+    "list_accounts",
+    "add_account",
+    "select_account",
+    "open_player",
+    "get_playback",
+    "play",
+    "pause",
+    "forget_account"
+  ],
+  "skill": "Use list_accounts to find the selected account. For playback read get_playback, then use play or pause on that account. If no track is available, open_player and ask the user to start a track. Google sign-in accounts use the same playback tools in their dedicated music browser. Use select_account to switch. To set up a service, use add_account with service and label, optionally login=google for Spotify or YouTube Music, then open_player with signIn=true. Only forget_account after the user confirms removal. Never ask for passwords or sign-in codes.",
+  "widgets": [
+    {
+      "id": "now-playing",
+      "name": "Now playing",
+      "surfaces": [
+        "chat.panel",
+        "settings.design"
+      ],
+      "grid": {
+        "min": [
+          1,
+          1
+        ],
+        "preferred": [
+          1,
+          1
+        ],
+        "max": [
+          12,
+          4
+        ]
+      }
+    }
+  ]
+}

@@ -42,7 +42,8 @@ describe("app navigation", () => {
     expect(appTabLabel("chat")).toBe("Chat");
     expect(appTabLabel("skills")).toBe("Skills");
     expect(appTabLabel("connectors")).toBe("Connectors");
-    expect(appTabLabel("live")).toBe("Live");
+    expect(appTabLabel("live")).toBe("Processes");
+    expect(appTabLabel("account")).toBe("Profile");
     expect(appTabLabel("usage")).toBe("Usage");
     expect(appTabLabel("guide")).toBe("Guide");
     expect(appTabLabel("scheduled")).toBe("Scheduled");

@@ -70,6 +70,10 @@ it("reports a new install's first task and its first browser success, once each"
   expect((await runTask(FIRST_TASK_EXAMPLE))?.status).toBe("done");
   expect((await runTask("Open example.org"))?.status).toBe("done");
 
+  expect(mocks.invoke.mock.calls.filter(([command]) => command === "product_journey")).toEqual([
+    ["product_journey", { event: "agent_action_succeeded" }],
+    ["product_journey", { event: "agent_action_succeeded" }],
+  ]);
   expect(firstTaskEvents()).toEqual([
     ["first_task_submitted", { agent: "codex", chip_kind: "none", execution_target: "local", from_example: true, onboarding_done: false }],
     ["first_task_succeeded", { agent: "codex", execution_target: "local", from_example: true, onboarding_done: false }],
@@ -105,4 +109,12 @@ it("waits for a reply that ran with a browser profile before reporting success",
     ["first_task_submitted", expect.objectContaining({ from_example: false })],
     ["first_task_succeeded", expect.objectContaining({ from_example: false })],
   ]);
+});
+
+it.each([{code:0,stdout:"",stderr:""},{code:1,stdout:"partial output",stderr:"failure"}])("does not send a successful product journey for an empty or failed agent result %#", async (outcome) => {
+  const {runTask}=await newInstall();
+  const prior=mocks.invoke.getMockImplementation()!;
+  mocks.invoke.mockImplementation(async (command: string,payload: {args:string[]}) => command==="agent_run"?outcome:prior(command,payload));
+  expect((await runTask("private task input"))?.status).toBe("failed");
+  expect(mocks.invoke.mock.calls.filter(([command])=>command==="product_journey")).toEqual([]);
 });

@@ -10,6 +10,23 @@ const http = require("node:http");
 const entries = ["clawbrowser", "camoufox", "dasbrowser"].map((runtime) => ({ runtime, name: runtime, status: "not-installed", latestVersion: "1.0.0" }));
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
+test("startup installs only missing defaults and a simultaneous profile launch joins the download", async () => {
+  const { missingDefaultBrowsers } = require("./browser-runtime-updates.cjs");
+  const { coordinator, started, controls, state } = fixture();
+  const missing = missingDefaultBrowsers(state);
+  assert.deepEqual(missing, ["clawbrowser", "camoufox"]);
+  state.runtimes[1].status = "available"; // installed before the new check
+  const startup = coordinator.install(missing, { missingOnly: true });
+  const launch = coordinator.install(["clawbrowser"], { missingOnly: true });
+  await tick();
+  assert.deepEqual(started, ["clawbrowser"]);
+  controls.get("clawbrowser").resolve();
+  const [done] = await Promise.all([startup, launch]);
+  assert.equal(done.status, "ready");
+  state.runtimes[0].status = "unknown"; // installed without version metadata
+  assert.deepEqual(missingDefaultBrowsers(state), []);
+});
+
 test("the coordinator overlaps actual HTTP transfers and publishes each file's measured bytes", { timeout: 5000 }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "nextbrowser-parallel-transfers-"));
   const responses = [];

@@ -36,6 +36,24 @@ it("does not let an older profile refresh hide a newly created profile", async (
   expect(useStore.getState().profiles.map((p) => p.name)).toEqual(["one", "two"]);
 });
 
+it("does not show another runtime's session as running in the profile list", async () => {
+  const { useStore } = await import("./store");
+  useStore.setState({ workspaces: [{
+    id: "workspace", name: "Workspace", profileNames: ["camou", "russia", "das"],
+    profileToolsets: { camou: "camoufox", russia: "clawbrowser", das: "dasbrowser" },
+    createdAt: 1, updatedAt: 1,
+  }] });
+  bridge.invoke.mockImplementation(async (command, { args } = {}) => {
+    if (command !== "nextctl_run") return null;
+    if (args[0] === "profiles") return result({ profiles: [{ name: "camou" }, { name: "russia" }, { name: "das" }] });
+    const name = args[2];
+    return result({ status: "running", session: { name, runtime: name === "das" ? "chromium" : "clawbrowser" } });
+  });
+  await useStore.getState().loadProfiles();
+  expect(useStore.getState().statuses).toEqual({ camou: "unknown", russia: "running", das: "running" });
+  expect(useStore.getState().profileSessions.camou).toBeUndefined();
+});
+
 it("waits for an in-flight cloud sync before assigning a profile", async () => {
   // Assignment waits for the authoritative cloud snapshot, then persists against it.
   const { useStore } = await import("./store");

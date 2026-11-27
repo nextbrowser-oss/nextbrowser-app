@@ -40,7 +40,7 @@ describe("workspace browser selection", () => {
     fixture.state.xReplyState = { ...emptyXReplyState(), profileName: "foreign" };
     const html = render();
     expect(html).toContain("Choose a profile in this workspace");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="Open x.com/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*data-tooltip-id=[^>]*>Open x.com/);
     expect(html).not.toContain('value="foreign"');
   });
   it("does not offer a default session when the selected profile belongs to another workspace", () => {

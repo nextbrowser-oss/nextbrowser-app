@@ -37,6 +37,6 @@ describe("schedule row", () => {
     const html = renderToStaticMarkup(<ScheduledRunsPanel asPage />);
     expect(html).toContain("09:00 · Daily");
     expect(html).toContain("Last started");
-    expect(html).toContain("Could not start: Codex is signed out. Use “Log in” for Codex. It retries automatically while Nextbrowser is open.");
+    expect(html).toContain("Could not start: Codex is signed out. Use “Log in” for Codex. It retries automatically while this device is awake.");
   });
 });

@@ -1,0 +1,4 @@
+.shared-window-controls { display: flex; align-items: center; gap: 2px; flex: none; color: var(--text); -webkit-app-region: no-drag; app-region: no-drag; }
+.shared-window-controls .shared-icon-button { width: 34px; height: 30px; color: inherit; -webkit-app-region: no-drag; app-region: no-drag; }
+.shared-window-controls .shared-icon-button.shared-window-close:hover:not(:disabled) { background: var(--danger-action); color: var(--on-danger); }
+@media (max-width: 360px) { .shared-window-controls { gap: 0; } .shared-window-controls .shared-icon-button { width: 28px; } }

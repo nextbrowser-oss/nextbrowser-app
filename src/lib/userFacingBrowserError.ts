@@ -55,6 +55,10 @@ export const VPN_SYSTEM_PROXY_HINT =
 const PROXY_PATH_FAILURE =
   /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|proxy[^.\n]*(?:refused|unreachable|timed? ?out|timeout)|proxy profile cannot continue without its proxy|proxy[_ ]required|failed browser checks:[^;]*\bproxy\b|Command timed out|did not complete before timeout|context deadline exceeded|did not become ready in time/i;
 
+export function isProxyTunnelFailure(error: unknown): boolean {
+  return /\b(?:ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|PROXY_CONNECTION_LOST)\b/i.test(rawErrorMessage(error));
+}
+
 /** True when a profile start failed the way a blocked path to its proxy fails: a proxy or tunnel error, or a timeout. */
 export function isProxyPathFailure(error: unknown): boolean {
   const raw = rawErrorMessage(error);
@@ -164,6 +168,15 @@ export function browserFailureCause(error: unknown): BrowserFailureCause | undef
 export function userFacingBrowserError(error: unknown): string {
   const raw = rawErrorMessage(error);
   if (!raw) return "The browser could not be prepared. Try again.";
+  if (/\[nbc-install\]|\[clawctl-install\]|Clawbrowser installation failed/i.test(raw)) {
+    if (/administrator approval was cancell?ed|operation was cancell?ed by the user/i.test(raw)) {
+      return "Windows administrator approval was cancelled. Try again and approve the ClawBrowser installer when Windows asks.";
+    }
+    if (/requesting Windows administrator approval/i.test(raw)) {
+      return "ClawBrowser setup did not finish. Try again and approve the installer when Windows asks.";
+    }
+    return "ClawBrowser could not be installed. Try again.";
+  }
 
   if (/workspace not found|workspace revision conflict/i.test(raw)) {
     return "The selected workspace is no longer available. Select or create a workspace, then try again.";

@@ -99,6 +99,7 @@ export interface SessionInfo {
   name?: string | null;
   endpoint?: string | null;
   source?: string | null;
+  runtime?: string | null;
 }
 
 export interface SessionStatus {
@@ -120,6 +121,7 @@ export type MessageRole = "user" | "assistant" | "system";
 export type MessageStatus =
   | "queued"
   | "streaming"
+  | "needsAttention"
   | "done"
   | "failed"
   | "cancelled"
@@ -154,6 +156,8 @@ export interface ChatMessage {
   lastActivityAt?: number;
   stalled?: boolean;
   activityLabel?: string;
+  runReport?: { plan: string[]; progress: string };
+  runIssue?: { code: string; ref: string };
   toolEvents?: ToolEvent[];
   commandChip?: UserCommandChip;
   attachments?: ChatAttachment[];
@@ -162,11 +166,19 @@ export interface ChatMessage {
 export interface Conversation {
   id: string;
   title: string;
+  /** A root conversation is also a project. Its session can have an independent name. */
+  sessionTitle?: string;
+  sessionTitleEditedAt?: number;
   agent: string;
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
   parentId?: string;
+  /** Existing project conversation whose folder contains this independent session. */
+  projectId?: string;
+  /** Persisted ordering for the project tree, independent of chat activity. */
+  projectOrder?: number;
+  sessionOrder?: number;
   forkedFromMessageId?: string;
   executionTarget?: "local" | "vps";
   vpsConnectionInstructions?: string;
@@ -525,7 +537,7 @@ export interface TabsList {
   }[];
 }
 
-export type AppTab = "chat" | "automation" | "skills" | "connectors" | "live" | "usage" | "guide" | "scheduled";
+export type AppTab = "account" | "chat" | "automation" | "mini-apps" | "skills" | "connectors" | "mcp" | "live" | "usage" | "guide" | "scheduled";
 
 export interface AutomationArtifact {
   id: string;

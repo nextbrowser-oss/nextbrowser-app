@@ -54,7 +54,8 @@ test("terminal Codex keeps workspace isolation while allowing Clawbrowser networ
   assert.doesNotMatch(main, /"-c", "mcp_servers\.clawbrowser\.enabled=false"/);
   assert.match(main, /mcp_servers\.nextbrowser\.env_vars=.*NEXTBROWSER_CONTROL_TOKEN/);
   assert.match(main, /nextctlHasAutomationTrace\(nextctlBin\)/);
-  assert.match(main, /codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| ""\)\)/);
+  assert.match(main, /function codexClawbrowserArgs\([^)]*\) \{\s*return \[\s*\.\.\.codexClawbrowserMCPArgs\(nextctlBin, automationTraceFile, workspaceId, preferWebMCP\)/);
+  assert.match(main, /NEXTBROWSER_WORKSPACE_ID: workspaceId/);
   assert.match(main, /automationTraceFile \? \["NEXTBROWSER_AUTOMATION_TRACE_FILE"\] : \[\]/);
   assert.match(main, /automationTraceFile \? \["--automation-trace-file", automationTraceFile\] : \[\]/);
   assert.doesNotMatch(main, /mcpEnvKeys\.push\("MULTILOGIN_TOKEN"\)/);
@@ -111,14 +112,14 @@ test("Codex chat uses the managed Clawbrowser MCP configuration", () => {
   assert.match(main, /case "agent_run":[\s\S]*args\.agentId === "codex"/);
   assert.match(main, /case "agent_run":[\s\S]*resolveOrInstallNextctl\(\)/);
   assert.match(main, /case "agent_run":[\s\S]*nextctlHasAutomationTrace\(nextctlBin\)/);
-  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| ""\)\)/);
+  assert.match(main, /case "agent_run":[\s\S]*codexClawbrowserMCPArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| (?:""|'')\), desktopSettings\.effective\.preferWebsiteWebMCP\)/);
 });
 
 test("Terminal Chat restarts onto the active Recorder trace", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
   assert.match(main, /case "terminal_start":[\s\S]*activeAutomationTraceFile\(\)/);
-  assert.match(main, /case "terminal_start":[\s\S]*codexClawbrowserArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| ""\)\)/);
+  assert.match(main, /case "terminal_start":[\s\S]*codexClawbrowserArgs\(nextctlBin, supportedTraceFile, String\(args\.workspaceId \|\| ""\), desktopSettings\.effective\.preferWebsiteWebMCP\)/);
   assert.match(terminal, /AUTOMATION_RECORDING_EVENT/);
   assert.match(terminal, /activeAutomationRecording\(\)\?\.id/);
   assert.match(terminal, /setRestartNonce\(\(value\) => value \+ 1\)/);
@@ -178,10 +179,10 @@ test("profile starts require visible first-install consent and every browser run
 
   assert.match(main, /case "browser_runtime_available"/);
   assert.match(main, /requestId: options\.requestId/);
-  assert.match(main, /ensureClawbrowserRuntime\(bin, \{ requestId: options\.requestId \}\)/);
+  assert.match(main, /await ensureClawbrowserRuntime\(options\.requestId\)/);
   assert.match(main, /ensureDasbrowserRuntime\(\{ requestId: options\.requestId \}\)/);
   assert.match(main, /cancelBrowserRuntimeInstall/);
-  assert.match(sidebar, /Download &amp; start/);
+  assert.match(sidebar, /translate\("Download & start"\)/);
   assert.match(sidebar, /browser_runtime_available/);
   assert.match(app, /Stop download/);
   assert.match(app, /nextctl_cancel/);
@@ -190,12 +191,9 @@ test("profile starts require visible first-install consent and every browser run
 test("terminal chat is isolated by conversation", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
-  const chat = fs.readFileSync(path.join(__dirname, "..", "src", "components", "ChatView.tsx"), "utf8");
   assert.match(terminal, /\[agentId, conversationId, workspaceId, workingDir, restartNonce\]/);
-  assert.match(chat, /conversationId=\{conv\?\.id\}/);
   assert.match(terminal, /terminal_context_menu/);
   assert.match(terminal, /workspaceId: workspaceId \|\| ""/);
-  assert.match(chat, /workspaceId=\{conv\?\.workspaceId\}/);
   assert.match(main, /case "terminal_start"[\s\S]*agentControlArtifactScopes\.set\(controlToken/);
   assert.match(main, /case "terminal_update_context"[\s\S]*agentControlArtifactScopes\.set\(record\.controlToken/);
 });
@@ -204,7 +202,8 @@ test("terminal attachments are staged inside the sandboxed workspace", () => {
   const main = fs.readFileSync(path.join(__dirname, "main.cjs"), "utf8");
   const terminal = fs.readFileSync(path.join(__dirname, "..", "src", "components", "AgentTerminal.tsx"), "utf8");
   assert.match(main, /case "select_terminal_files"/);
-  assert.match(main, /agentWorkspaceDir\(home\(\)\), "\.attachments", conversation/);
+  assert.match(main, /localAgentWorkspace\(\), "\.attachments", conversation/);
+  assert.match(main, /function localAgentWorkspace\(\).*devStorage\.userData.*agentWorkspaceDir\(home\(\)\)/);
   assert.match(main, /stat\.size > 30 \* 1024 \* 1024/);
   assert.match(main, /totalSize > 600 \* 1024 \* 1024/);
   assert.match(main, /COPYFILE_FICLONE/);
@@ -266,7 +265,7 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.match(studio, /Start recording/);
   assert.match(studio, /Stop recording/);
   assert.match(studio, /Capture from Project Chat/);
-  assert.match(studio, /Stop &amp; open workflow/);
+  assert.match(studio, /translate\("Stop & open workflow"\)/);
   assert.match(studio, /startRecording\("workflow", "hybrid"\)/);
   assert.match(studio, /automation_page_recording_start/);
   assert.match(studio, /automation_page_recording_stop/);
@@ -275,8 +274,8 @@ test("unfinished recording attempts are never persisted as library entities", ()
   assert.doesNotMatch(sidebar, /status: "recording"/);
   assert.match(sidebar, /automation_recording_put[\s\S]*status: "completed"/);
   assert.doesNotMatch(studio, /else \{\s*s\.setTab\("live"\)/);
-  assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*s\.setTab\(recordingRuntime === "multilogin" \? "live" : "chat"\)/);
-  assert.match(studio, /s\.setTab\(recordingRuntime === "multilogin" \? "live" : "chat"\);\s*await invoke\("app_focus"\)/);
+  assert.match(studio, /if \(s\.terminalChat\) s\.setTerminalChat\(false\);\s*if \(recordingRuntime === "multilogin"\)/);
+  assert.match(studio, /if \(selection\) s\.openLiveSession\(multiloginTargetKey\(selection\)\);\s*\} else s\.setTab\("chat"\);\s*await invoke\("app_focus"\)/);
   assert.match(main, /case "app_focus":[\s\S]*focusMainWindow\(\)/);
   assert.match(main, /case "app_focus":[\s\S]*setTimeout\(\(\) => focusMainWindow\(\), 400\)/);
   assert.match(main, /process\.platform === "darwin"\) app\.focus\(\{ steal: true \}\)/);
@@ -291,7 +290,7 @@ test("automation studio gives newcomers a complete path and runs unsaved edits s
   assert.match(studio, /Record a task you can perform once/);
   assert.match(studio, /Build an editable, predictable automation/);
   assert.match(studio, /Keep automation files on this computer/);
-  assert.match(studio, /Save &amp; run/);
+  assert.match(studio, /translate\("Save & run"\)/);
   assert.match(studio, /min_rows: count/);
   assert.match(studio, /replaceTopCount\(artifactArguments\.name\)/);
   assert.match(studio, /const workflow = draftDirty \? await saveDraft\(\) : draft/);
@@ -316,8 +315,8 @@ test("workflow list exposes the same actions from a right-click menu", () => {
   const styles = fs.readFileSync(path.join(__dirname, "..", "src", "styles.css"), "utf8");
   assert.match(studio, /onContextMenu=\{\(event\) => openWorkflowContextMenu\(event, skill\.id\)\}/);
   assert.match(studio, /className="workflow-context-menu" role="menu"/);
-  assert.match(studio, /Duplicate workflow<\/button>/);
-  assert.match(studio, /Delete workflow<\/button>/);
+  assert.match(studio, /\{translate\("Duplicate workflow"\)\}<\/button>/);
+  assert.match(studio, /\{translate\("Delete workflow"\)\}<\/button>/);
   assert.match(styles, /\.workflow-context-menu/);
 });
 
@@ -337,7 +336,7 @@ test("recordings and workflows replay deterministically with explicit AI repair"
   assert.match(studio, /Repair & run with AI/);
   assert.match(studio, /AI is adding the missing starting page before this automation runs/);
   assert.match(studio, /Automatic repair could not start\. Original failure:/);
-  assert.match(studio, /canRepairMissingStart \? "Repair & run" : "Run again"/);
+  assert.match(studio, /canRepairMissingStart \? translate\("Repair & run"\) : translate\("Run again"\)/);
   assert.match(studio, /runLocalSkill\(repairWorkflow, repairTask\)/);
   assert.match(studio, /workflowSnapshot: workflow/);
   assert.match(studio, /failedExecution\.workflowSnapshot/);

@@ -1,0 +1,43 @@
+.shared-dialog.feedback-dialog {
+  --feedback-inset: clamp(16px, 4vw, 24px);
+  width: min(450px, calc(100vw - 24px));
+}
+.feedback-dialog .shared-dialog-header { padding: 18px var(--feedback-inset) 12px; }
+.feedback-dialog .shared-dialog-header h2 { font-size: 21px; letter-spacing: -.035em; }
+.feedback-dialog .shared-dialog-body { padding: 5px var(--feedback-inset) 22px; }
+.feedback-form { display: grid; gap: 20px; }
+.feedback-rating { min-width: 0; padding: 0; margin: 0; border: 0; }
+.feedback-rating legend, .feedback-note-heading { padding: 0; color: var(--dialog-text); font-size: 13px; font-weight: 600; }
+.feedback-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; margin-top: 9px; }
+.feedback-choice {
+  display: grid; position: relative; justify-items: center; align-content: center; gap: 6px; min-height: 64px;
+  padding: 5px 1px; border-radius: 12px; color: var(--dialog-muted); background: var(--surface-2);
+  font-size: 11px; line-height: 1.15; text-align: center; cursor: pointer;
+}
+.feedback-choice input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+.feedback-choice:hover { background: var(--surface-4); color: var(--dialog-text); }
+.feedback-choice:has(:checked) { color: var(--accent-text); background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.feedback-choice:has(:focus-visible) { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.feedback-choice:has(:disabled) { cursor: default; }
+.feedback-note { display: grid; gap: 8px; }
+.feedback-note-heading { display: flex; align-items: baseline; justify-content: space-between; }
+.feedback-note-heading small, .feedback-count { color: var(--dialog-muted); font-weight: 400; font-size: 11px; }
+.feedback-note-box { display: grid; border-radius: 12px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); padding: 10px 12px; }
+.feedback-note-box:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.feedback-note-box textarea, .feedback-note-box textarea:focus {
+  width: 100%; min-height: 62px; margin: 0; resize: vertical; padding: 0; border: 0;
+  border-radius: 0; background: transparent; color: var(--dialog-text); outline: none; box-shadow: none; font: inherit; font-size: 13px; line-height: 1.5;
+}
+.feedback-note-box textarea::placeholder { color: var(--dialog-muted); }
+.feedback-count { text-align: right; font-variant-numeric: tabular-nums; }
+.feedback-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.feedback-footer p { flex: 1 1 140px; max-width: 195px; margin: 0; color: var(--dialog-muted); font-size: 11px; line-height: 1.5; }
+.feedback-footer button { margin-inline-start: auto; }
+.feedback-error { margin: 0; color: var(--red); font-size: 13px; }
+.feedback-confirmation, .feedback-receipt { display: grid; justify-items: center; text-align: center; }
+.feedback-confirmation { gap: 20px; padding-block: 6px; }
+.feedback-receipt { gap: 8px; }
+.feedback-receipt-icon { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 4px; border-radius: 50%; color: var(--accent-text); background: var(--accent-soft); }
+.feedback-receipt h3, .feedback-receipt p { margin: 0; }
+.feedback-receipt h3 { font-size: 18px; }
+.feedback-receipt p { color: var(--dialog-muted); font-size: 13px; }

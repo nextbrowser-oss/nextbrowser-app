@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Music Player</title>
+<style>
+/* shared-select-fields */
+:root{color-scheme:dark;font:13px/1.35 system-ui,sans-serif;--ink:#f5f5fc;--muted:#b9b9cb;--surface:#22232d;--line:#454551;--pulse:#bcf3a3;background:var(--surface);color:var(--ink)}
+:root{--select-surface:#30313a;--select-menu:#252630;--select-hover:#3a3c48;--select-ink:var(--ink);--select-line:var(--line);--accent:var(--pulse)}
+*{box-sizing:border-box}html,body{width:100%;height:100%;margin:0}body{display:grid;align-content:center;overflow:hidden}
+main{width:min(100%,440px);padding:14px;margin:auto}button,select,input{font:inherit;color:inherit}button{cursor:pointer}
+button:disabled{opacity:.4;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--pulse);outline-offset:-2px}
+[hidden]{display:none!important}.screen{display:grid;gap:10px}.trackline,.transport,.account-line,.actions,.subhead{display:flex;align-items:center;gap:10px;min-width:0}
+.art{flex:none;display:grid;place-items:center;color:var(--pulse);border-radius:12px;background:linear-gradient(135deg,#333a36,#212825);width:44px;height:44px}
+.art svg{width:69%;height:69%;fill:currentColor}.art rect{transform-box:fill-box;transform-origin:center}
+body[data-playing=true] .art rect{animation:beat .77s ease-in-out infinite alternate}.art rect:nth-child(2n){animation-delay:-.43s!important}
+@keyframes beat{to{transform:scaleY(.45)}}@media(prefers-reduced-motion:reduce){.art rect{animation:none!important}}
+.track{min-width:0;flex:1}.track strong,.track small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track strong{font-size:16px}
+small,#no-accounts{color:var(--muted)}.transport{justify-content:space-between}.actions{gap:5px}
+button,select,input{border:0;border-radius:8px;padding:6px 9px;background:#343540;min-width:0}select,input{width:100%}
+button:hover:enabled{background:#444652}.round{width:34px;height:34px;border-radius:50%;padding:0;display:grid;place-items:center}.round svg{width:16px;height:16px}
+#toggle{background:var(--pulse);color:#172515}body:not([data-playing=true]) .pause,body[data-playing=true] .play{display:none}
+#choose{max-width:65%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.subhead{justify-content:space-between}.subhead strong{font-size:15px}.primary{background:var(--pulse);color:#172515}.primary:hover:enabled{background:#d1fac0}
+form{display:grid;gap:6px}#error{margin:4px 0 0;font-size:11px;color:#ffb7aa;overflow-wrap:anywhere}#error:empty{display:none}
+body[data-view=tile]{padding:0}
+body[data-view=tile] main,body[data-view=tile] #player,body[data-view=tile] .trackline{width:100%;height:100%;max-width:none;padding:0;margin:0}
+body[data-view=tile] .trackline{gap:0}body[data-view=tile] .art{width:min(100vw,100vh);height:min(100vw,100vh);border-radius:0;background:transparent}
+body[data-view=tile] :is(.transport,#error,.track){display:none}
+@media (min-width:80px){body[data-view=tile] .track{display:block;padding-right:5px}body[data-view=tile] .track strong{font-size:12px}body[data-view=tile] .track small{font-size:10px}}
+body[data-view=app]{background:#181920}body[data-view=app] main{border:1px solid var(--line);border-radius:18px;background:var(--surface);padding:20px}
+.symbols{position:absolute;width:0;height:0;overflow:hidden}.music-icon{width:16px;height:16px;flex:none}
+.music-field{display:grid;gap:5px;min-width:0}.field-label{font-size:11px;font-weight:600;color:var(--muted)}
+.music-field select{height:34px;align-items:center;gap:8px}.music-field selectedcontent,.icon-label{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.music-field selectedcontent,.music-field option span,.icon-label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.music-field select>button{display:contents}.music-field selectedcontent span{overflow:hidden;text-overflow:ellipsis}
+.music-field option::checkmark{display:none}.music-field option:checked{box-shadow:inset 0 0 0 1px var(--line)}
+.music-field select::picker(select){grid-template-columns:repeat(2,minmax(0,1fr));align-content:start}
+.music-field select:open::picker(select){display:grid}
+body[data-view=popover] main:has(#services:open){min-height:var(--services-height)}
+body[data-view=popover] main:has(#accounts:open){min-height:var(--accounts-height)}
+.icon-label .music-icon{width:14px;height:14px}
+#form{gap:9px}#form .actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
+#form .actions button{min-height:34px;font-weight:600}#form input{min-height:32px}
+#google-login{background:var(--ink);color:var(--surface)}#google-login b{font-size:14px;margin-right:5px}
+#form [hidden]{display:none}#form small{white-space:normal}
+</style></head><body><main>
+<svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="icon-spotify" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#1ed760"/><path d="M5 9q7-3 14 1M6 12q6-2 12 1M7 15q5-1.5 9 1" fill="none" stroke="#103919" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="icon-youtube" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#ff3049"/><circle cx="12" cy="12" r="7" fill="none" stroke="white"/><path d="m10 8 6 4-6 4z" fill="white"/></symbol>
+  <symbol id="icon-apple" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="#f54866"/><path d="M9 15V7l10-2v11a3 3 0 1 1-2-2.8V8l-6 1.3V17a3 3 0 1 1-2-2z" fill="white"/></symbol>
+  <symbol id="icon-soundcloud" viewBox="0 0 24 24"><path d="M1 12v4m3-6v7m3-9v10m3-12v12m2-11a6 6 0 0 1 9 5 3.4 3.4 0 0 1-.5 6H12z" fill="#ff801c" stroke="#ff801c" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="icon-tidal" viewBox="0 0 24 24"><path fill="#e8fbff" d="m4 4 4 4-4 4-4-4zm8 0 4 4-4 4-4-4zm8 0 4 4-4 4-4-4zm-12 4 4 4-4 4-4-4zm8 0 4 4-4 4-4-4zm-4 4 4 4-4 4-4-4z"/></symbol>
+  <symbol id="icon-deezer" viewBox="0 0 24 24"><path d="M3 14v-4m4 8V7m5 14V3m5 15V6m4 8v-4" fill="none" stroke="#bd7bff" stroke-width="3" stroke-linecap="round"/></symbol>
+  <symbol id="icon-yandex" viewBox="0 0 24 24"><circle fill="#ffd43b" cx="12" cy="12" r="11"/><path d="m13 2-.5 7 5-6-3 7 6-4-5 6 6-1-7 3 .5 6-3-5-5 6 3-7-7 2 6-5-5-3 7 1z" fill="#21172e"/></symbol>
+  <symbol id="icon-custom" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></g></symbol>
+  <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="icon-back" viewBox="0 0 24 24"><path d="m14 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="icon-remove" viewBox="0 0 24 24"><path d="M4 6h16M9 6V3h6v3m3 1-1 13H7L6 7m4 3v7m4-7v7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+</defs></svg>
+<section class="screen" id="player">
+  <div class="trackline"><div class="art" aria-hidden="true"><svg viewBox="0 0 28 28"><rect x="2" y="10" width="4" height="8" rx="2"/><rect x="8.5" y="4" width="4" height="20" rx="2"/><rect x="15" y="7" width="4" height="14" rx="2"/><rect x="21.5" y="9" width="4" height="10" rx="2"/></svg></div>
+  <div class="track"><strong id="track">Music Player</strong><small id="artist"></small></div></div>
+  <div class="transport"><button id="choose" class="icon-label"><svg class="music-icon" aria-hidden="true"><use href="#icon-plus"/></svg><span>Add account</span></button><div class="actions">
+    <button class="round" id="launch" aria-label="Open service" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 4h7v7m0-7-10 10M9 5H5v14h14v-4"/></svg></button>
+    <button class="round" id="toggle" aria-label="Play" disabled><svg viewBox="0 0 24 24" fill="currentColor"><path class="play" d="M7 4v16l13-8z"/><path class="pause" d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg></button>
+  </div></div>
+</section>
+<section id="library" class="screen" hidden><div class="subhead"><strong>Music accounts</strong><button class="round" data-back="player" aria-label="Back"><svg class="music-icon"><use href="#icon-back"/></svg></button></div>
+  <div class="music-field" id="account-field"><label class="field-label" for="accounts">Account</label><select id="accounts" aria-label="Music account"><button type="button"><selectedcontent></selectedcontent></button></select></div><small id="no-accounts">No accounts yet</small>
+  <div class="actions"><button class="primary icon-label" id="manage"><svg class="music-icon" aria-hidden="true"><use href="#icon-plus"/></svg>Add account</button><button class="icon-label" id="remove"><svg class="music-icon" aria-hidden="true"><use href="#icon-remove"/></svg>Remove selected</button></div>
+  <button id="google-existing" hidden>Sign in with Google in browser</button>
+</section>
+<form id="form" hidden><div class="subhead"><strong>Connect a music service</strong><button type="button" class="round" data-back="library" aria-label="Back"><svg class="music-icon"><use href="#icon-back"/></svg></button></div>
+  <div class="music-field"><label class="field-label" for="services">Music service</label><select id="services" aria-label="Music service"><button type="button"><selectedcontent></selectedcontent></button></select></div>
+  <input id="label" aria-label="Account nickname (optional)" placeholder="Account nickname (optional)" maxlength="60">
+  <input id="url" type="url" hidden aria-label="Service website" placeholder="https://music.example.com">
+  <div class="actions"><button id="service-login" class="primary">Continue to service</button><button id="google-login" type="submit" hidden><b aria-hidden="true">G</b>Google sign-in</button></div>
+  <small id="login-hint"></small>
+</form>
+<section id="confirmation" class="screen" hidden><strong>Remove this local login?</strong><div class="actions"><button id="confirm">Remove</button><button data-back="library">Cancel</button></div></section>
+<p id="error" role="alert"></p>
+</main><script>
+const el = id => document.getElementById(id);
+const actions = {
+  list_accounts: ['list','List supported services, saved local accounts and the selected account.'],
+  add_account: ['add','Create a named local music account. Use a service ID from list_accounts.'],
+  select_account: ['select','Select the account shown on the panel.'],
+  open_player: ['open','Open the official service window for manual sign-in, track selection and full playback controls.'],
+  get_playback: ['status','Read the active track, artist and playback state for this account.'],
+  play: ['play','Resume the selected media in an open service window.'],
+  pause: ['pause','Pause the selected media in an open service window.'],
+  forget_account: ['forget','Remove a local login and its cookies after explicit user confirmation.']
+};
+const string = {type:'string'};
+const properties = {add_account:{service:string,label:string,login:string,url:{type:'string',description:'Public HTTPS player address, required for the custom service.'}},open_player:{id:string,signIn:{type:'boolean'},login:string},list_accounts:{},forget_account:{id:string,confirm:{type:'boolean'}},select_account:{id:string}};
+const requires = {add_account:['service','label'],select_account:['id'],forget_account:['id','confirm']};
+let current, playing = false, updateId = 0;
+async function request(action,input={}) {
+  const response = await fetch('/music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...input,action})});
+  const value = await response.json();
+  if (!response.ok) throw Error(value?.error || 'Music service unavailable.');
+  return value;
+}
+function options(node, items, value) {
+  const previous = [...node.options];
+  if (items.length !== previous.length || items.some((item,i) => previous[i].value !== item.id || previous[i].label !== (item.name ?? item.label))) {
+    previous.forEach(option => option.remove());
+    for (const item of items) {
+      const option = document.createElement('option');
+      option.value = item.id;
+      option.label = item.name ?? item.label;
+      const icon = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      icon.setAttribute('class','music-icon'); icon.setAttribute('aria-hidden','true');
+      const use = document.createElementNS(icon.namespaceURI,'use');
+      use.setAttribute('href','#icon-' + (item.service ?? item.id)); icon.append(use);
+      const text = document.createElement('span'); text.textContent = option.label;
+      option.append(icon,text); node.append(option);
+    }
+    node.closest('main').style.setProperty('--' + node.id + '-height', (128 + Math.ceil(items.length/2)*29) + 'px');
+  }
+  if (value && node.value !== value) node.value = value;
+}
+async function refresh() {
+  const tick = ++updateId;
+  const data = await request('list');
+  const status = data.selected ? await request('status',{id:data.selected}) : {};
+  if (tick !== updateId) return;
+  current = data.selected;
+  options(el('accounts'),data.accounts,current);
+  const previous = el('services').value;
+  options(el('services'),data.services,previous);
+  updateLoginOptions();
+  const account = data.accounts.find(a => a.id === current);
+  const service = data.services.find(s => s.id === account?.service);
+  el('launch').disabled = !account;
+  el('google-existing').hidden = !['youtube','spotify'].includes(account?.service);
+  el('toggle').disabled = !status.available;
+  el('remove').disabled = !account;
+  playing = !!status.playing;
+  el('toggle').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  document.body.dataset.playing = String(playing);
+  el('track').textContent = status.title || service?.name || 'Music Player';
+  el('artist').textContent = status.artist || account?.label || '';
+  el('choose').querySelector('span').textContent = account ? account.label : 'Add account';
+  el('choose').querySelector('use').setAttribute('href','#icon-' + (account?.service ?? 'plus'));
+  el('no-accounts').hidden = !!account;
+  el('account-field').hidden = !account;
+  el('remove').hidden = !account;
+}
+async function run(name,input) {
+  const value = await request(actions[name][0],input);
+  if (name !== 'list_accounts' && name !== 'get_playback') await refresh();
+  return value;
+}
+for (const [name,[,description]] of Object.entries(actions)) {
+  const fields = properties[name] ?? {id:string};
+  (document.modelContext ?? navigator.modelContext).registerTool({name,description,inputSchema:{type:'object',properties:fields,required:requires[name] ?? [],additionalProperties:false},
+    execute:async input => {
+      try {
+        if (Object.keys(input).some(k => !Object.hasOwn(fields,k)) || (requires[name] ?? []).some(k => input[k] === undefined) ||
+          Object.entries(input).some(([k,v]) => typeof v !== fields[k].type)) throw Error('Invalid tool arguments.');
+        return {ok:true,value:await run(name,input)};
+      } catch(e) {return {ok:false,error:e.message};}
+    }});
+}
+const report = e => { el('error').textContent = e.message; };
+function act(name,input) { el('error').textContent=''; return run(name,input).catch(report); }
+
+// The anchored guest grows upwards when a picker opens. Opening on press would
+// put an option under the pointer before release and commit it in the same click.
+for (const field of [el('services'),el('accounts')]) {
+  let deferred = false;
+  field.addEventListener('pointerdown', event => {
+    deferred = event.isPrimary && event.button === 0 && !field.matches(':open') && !event.target.closest('option');
+    if (deferred) { event.preventDefault(); field.focus({preventScroll:true}); }
+  });
+  field.addEventListener('pointercancel', () => { deferred = false; });
+  field.addEventListener('click', event => {
+    if (!deferred || !event.detail) return;
+    deferred = false;
+    event.preventDefault();
+    if (!field.matches(':open')) field.showPicker();
+  });
+}
+
+function show(id) {
+  for(const screen of ['player','library','form','confirmation']) el(screen).hidden = screen !== id;
+  el('error').textContent='';
+}
+for(const button of document.querySelectorAll('[data-back]')) button.onclick = () => show(button.dataset.back);
+el('choose').onclick = () => show(current ? 'library' : 'form');
+el('manage').onclick = () => show('form');
+el('accounts').onchange = async e => {if(await act('select_account',{id:e.target.value})) show('player');};
+el('toggle').onclick = () => act(playing ? 'pause' : 'play',{id:current});
+el('launch').onclick = () => act('open_player',{id:current});
+el('google-existing').onclick = async () => {
+  el('google-existing').disabled = true;
+  try { if (await act('open_player',{id:current,login:'google',signIn:true})) show('player'); }
+  finally { el('google-existing').disabled = false; }
+};
+function updateLoginOptions() {
+  const select = el('services'), service = select.value, custom = service === 'custom';
+  const google = ['youtube','spotify'].includes(service);
+  el('url').hidden = !custom; el('url').required = custom;
+  el('google-login').hidden = !google;
+  el('service-login').hidden = service === 'youtube';
+  el('service-login').textContent = 'Continue to ' + (custom ? 'website' : select.selectedOptions[0]?.label || 'service');
+  el('login-hint').textContent = google ? 'Google sign-in and playback open in a private music profile in your browser.' : 'Sign in on the service’s own website.';
+}
+el('services').onchange = updateLoginOptions;
+el('form').onsubmit = async e => {
+  e.preventDefault();
+  if (el('service-login').disabled) return;
+  const select = el('services'), google = e.submitter === el('google-login') || select.value === 'youtube';
+  el('service-login').disabled = el('google-login').disabled = true;
+  try {
+    const account = await act('add_account',{service:select.value,label:el('label').value.trim() || select.selectedOptions[0].label,url:el('url').value,...(google ? {login:'google'} : {})});
+    if (!account) return;
+    el('label').value=''; show('player');
+    await act('open_player',{id:account.id,signIn:true});
+  } finally { el('service-login').disabled = el('google-login').disabled = false; }
+};
+let removal;
+el('remove').onclick = () => {removal=current;show('confirmation');};
+el('confirm').onclick = async () => {if(await act('forget_account',{id:removal,confirm:true})) show('player');};
+fetch('/context').then(r=>r.json()).then(context=>{
+  document.body.dataset.view = context.view || (context.blockId ? 'tile' : 'app');
+  if (context.view === 'popover') {
+    const panel = document.querySelector('main');
+    new ResizeObserver(() => {
+      const height = Math.ceil(panel.getBoundingClientRect().height);
+      if (height) void fetch('/context',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({height})}).catch(() => {});
+    }).observe(panel);
+  }
+  return refresh();
+}).catch(report);
+setInterval(() => {if(!document.hidden) refresh().catch(report);},2500);
+</script></body></html>

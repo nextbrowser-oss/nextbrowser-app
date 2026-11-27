@@ -1,6 +1,11 @@
 import type { AppTab } from "../types";
 
 export type PrimaryAppTab = Extract<AppTab, "chat" | "live">;
+export type UtilityDialogTab = Extract<AppTab, "connectors" | "scheduled" | "mcp">;
+
+export function isUtilityDialogTab(tab: string): tab is UtilityDialogTab {
+  return tab === "connectors" || tab === "scheduled" || tab === "mcp";
+}
 
 const APP_TAB_HISTORY_LIMIT = 50;
 
@@ -8,11 +13,14 @@ const APP_TAB_HISTORY_LIMIT = 50;
 export const OPEN_AGENT_SETTINGS_EVENT = "nextbrowser:open-agent-settings";
 
 const APP_TAB_LABELS: Record<AppTab, string> = {
+  account: "Profile",
   chat: "Chat",
   automation: "Automation",
+  "mini-apps": "Mini Apps",
   skills: "Skills",
   connectors: "Connectors",
-  live: "Live",
+  mcp: "MCP",
+  live: "Processes",
   usage: "Usage",
   guide: "Guide",
   scheduled: "Scheduled",

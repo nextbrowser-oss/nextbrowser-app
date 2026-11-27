@@ -5,7 +5,7 @@
 // key goes from the setup's field straight to the main process and comes back
 // only as "a key is saved".
 
-export type BuiltinProviderId = "nvidia" | "openrouter" | "gemini" | "custom";
+export type BuiltinProviderId = "nvidia" | "openrouter" | "deepseek" | "anthropic" | "gemini" | "custom";
 
 export interface BuiltinProviderPreset {
   id: BuiltinProviderId;
@@ -24,22 +24,39 @@ export interface BuiltinProviderPreset {
 // main process actually calls; a node test keeps the two in step.
 export const BUILTIN_PROVIDERS: readonly BuiltinProviderPreset[] = [
   {
+    id: "openrouter",
+    name: "OpenRouter",
+    baseURL: "",
+    keyRequired: false,
+    limits: "Free models are available through your Nextbrowser account, subject to shared capacity.",
+    dataUse: "Free models can come from providers that log or train on prompts.",
+  },
+  {
     id: "nvidia",
     name: "NVIDIA",
     baseURL: "https://integrate.api.nvidia.com/v1",
     keyURL: "https://build.nvidia.com",
     keyRequired: true,
-    limits: "Free key, about 40 requests a minute. Nemotron models call tools well.",
-    dataUse: "NVIDIA offers its hosted models for development and testing.",
+    limits: "Nemotron is included with your Nextbrowser account. Shared capacity applies.",
+    dataUse: "Nextbrowser provides access to the hosted model. You can also use a personal NVIDIA key.",
   },
   {
-    id: "openrouter",
-    name: "OpenRouter",
-    baseURL: "https://openrouter.ai/api/v1",
-    keyURL: "https://openrouter.ai/keys",
+    id: "deepseek",
+    name: "DeepSeek",
+    baseURL: "https://api.deepseek.com",
+    keyURL: "https://platform.deepseek.com/api_keys",
     keyRequired: true,
-    limits: "Free models end in :free; openrouter/free picks one. About 50 requests a day on a free account.",
-    dataUse: "Free models can come from providers that log or train on prompts.",
+    limits: "Paid API; usage is billed to your DeepSeek account.",
+    dataUse: "Tasks and browser content are sent to DeepSeek under your account's data policy.",
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    baseURL: "https://api.anthropic.com/v1",
+    keyURL: "https://platform.claude.com/settings/keys",
+    keyRequired: true,
+    limits: "Paid Claude API; use a workspace-scoped API key. A Claude subscription does not include API usage.",
+    dataUse: "Tasks and browser content are sent to Anthropic under your API account's data policy.",
   },
   {
     id: "gemini",
@@ -60,7 +77,7 @@ export const BUILTIN_PROVIDERS: readonly BuiltinProviderPreset[] = [
   },
 ];
 
-export const DEFAULT_BUILTIN_PROVIDER: BuiltinProviderId = "nvidia";
+export const DEFAULT_BUILTIN_PROVIDER: BuiltinProviderId = "openrouter";
 
 export function builtinProvider(id: string | undefined): BuiltinProviderPreset {
   return BUILTIN_PROVIDERS.find((provider) => provider.id === id) ?? BUILTIN_PROVIDERS[0];
@@ -99,6 +116,8 @@ export interface BuiltinAgentStatus {
 /** How a built-in agent run failed (electron/builtin-agent-run.cjs). */
 export interface BuiltinAgentFailure {
   code: string;
+  ref?: string;
+  diagnosticCode?: string;
   /** The user fixes it in Settings: a key, a limit, a model. */
   expected: boolean;
   status?: number;
@@ -110,6 +129,13 @@ export interface BuiltinModelOption {
   vision?: boolean;
   free?: boolean;
   tools?: boolean;
+}
+
+export function freeOpenRouterOptions(models: BuiltinModelOption[]) {
+  return models.filter((item) => item.free && item.tools !== false).map((item) => ({
+    value: item.id,
+    label: item.id === "openrouter/free" ? "OpenRouter Free (auto)" : item.id,
+  }));
 }
 
 export interface BuiltinModelList {

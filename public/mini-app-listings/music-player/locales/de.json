@@ -1,0 +1,13 @@
+{
+  "description": "Musiksteuerung im Chat-Panel.",
+  "useCases": [
+    "Abspielen, pausieren und Titel wechseln, ohne den Chat zu verlassen.",
+    "Mehrere Musikkonten hinzufügen und zwischen ihnen wechseln."
+  ],
+  "requirements": "Melde dich auf der Website des Musikdienstes an. Die Steuerung funktioniert, solange das Player-Fenster offen ist.",
+  "example": "Was läuft gerade? Nächster Titel.",
+  "screenshots": {
+    "player.png": "Player mit einem Beispielkonto",
+    "account.png": "Musikkonto hinzufügen"
+  }
+}

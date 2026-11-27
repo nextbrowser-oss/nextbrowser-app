@@ -1,20 +1,21 @@
+import { translate } from "../shared/lib/i18n";
 import { MultiloginConnector } from "./MultiloginConnector";
 import { useStore } from "../store";
 import { CONNECTORS } from "../connectorsCatalog";
 
-export function ConnectorsView() {
+export function ConnectorsView({ embedded = false }: { embedded?: boolean } = {}) {
   const s = useStore();
   const workspace = s.workspaces.find((item) => item.id === s.activeWorkspaceId);
   const prompt = s.connectorPrompt;
 
   return (
     <div className="page connectors-page">
-      <div className="connectors-page-head">
+      {!embedded && <div className="connectors-page-head">
         <div>
-          <h2>Connectors</h2>
-          <p className="muted">Connect external browser platforms to Nextbrowser.</p>
+          <h2>{translate("Connectors")}</h2>
+          <p className="muted">{translate("Connect external browser platforms to Nextbrowser.")}</p>
         </div>
-      </div>
+      </div>}
       <div className="connectors-grid">
         {CONNECTORS.map((connector) => connector.id === "multilogin" && (
           <MultiloginConnector

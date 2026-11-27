@@ -1,4 +1,6 @@
-import { useId, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { formattingLocale, translate } from "../shared/lib/i18n";
+import { useEffect, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { TooltipContent, type TooltipAnchor } from "../shared/ui";
 import {
   formatHistoryDateLabel,
   sortTrafficHistoryPoints,
@@ -7,14 +9,10 @@ import {
 } from "../lib/trafficChart";
 import { humanBytes, type ProxyTrafficHistoryPoint } from "../types";
 
-const chartWidth = 1000;
-const chartHeight = 300;
-const plotLeft = 78;
-const plotRight = 980;
-const plotTop = 18;
-const plotBottom = 238;
+const plotLeft = 60;
+const plotTop = 8;
 const gridFractions = [0, 0.25, 0.5, 0.75, 1];
-const numberFormatter = new Intl.NumberFormat();
+
 
 type PositionedTrafficPoint = ProxyTrafficHistoryPoint & {
   x: number;
@@ -27,13 +25,31 @@ function chartPath(points: PositionedTrafficPoint[]): string {
     .join(" ");
 }
 
-function areaPath(points: PositionedTrafficPoint[]): string {
+function areaPath(points: PositionedTrafficPoint[], plotBottom: number): string {
   if (!points.length) return "";
   return `M ${points[0].x.toFixed(2)} ${plotBottom} ${chartPath(points).replace(/^M/, "L")} L ${points.at(-1)?.x.toFixed(2)} ${plotBottom} Z`;
 }
 
 export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] }) {
   const gradientId = useId().replace(/:/g, "");
+  const tooltipId = useId();
+  const activeDot = useRef<SVGCircleElement>(null);
+  const container = useRef<HTMLDivElement>(null);
+  const [{width: chartWidth, height: chartHeight}, setSize] = useState({width: 640, height: 170});
+  useEffect(() => {
+    if (!container.current || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const {width, height} = entry.contentRect;
+      if (width > 0 && height > 0) setSize({width, height});
+    });
+    observer.observe(container.current);
+    return () => observer.disconnect();
+  }, []);
+  const plotRight = Math.max(plotLeft + 1, chartWidth - 10);
+  const plotBottom = Math.max(plotTop + 1, chartHeight - 24);
+  const tooltipAnchor = useMemo<TooltipAnchor>(() => ({
+    getBoundingClientRect: () => activeDot.current?.getBoundingClientRect() ?? new DOMRect(),
+  }), []);
   const [hoveredIndex, setHoveredIndex] = useState<number>();
   const chartPoints = useMemo(() => sortTrafficHistoryPoints(points), [points]);
   const maximumBytes = useMemo(
@@ -50,11 +66,12 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
         : plotLeft + index / (chartPoints.length - 1) * plotWidth,
       y: plotBottom - point.used_bytes / maximumBytes * plotHeight,
     }));
-  }, [chartPoints, maximumBytes]);
-  const axisIndices = trafficChartTickIndices(chartPoints.length);
+  }, [chartPoints, maximumBytes, plotRight, plotBottom]);
+  const tickCount = Math.min(7, Math.max(2, Math.floor((plotRight - plotLeft) / 64)));
+  const axisIndices = trafficChartTickIndices(chartPoints.length, tickCount);
   const activePoint = hoveredIndex == null ? undefined : positionedPoints[hoveredIndex];
   const line = chartPath(positionedPoints);
-  const area = areaPath(positionedPoints);
+  const area = areaPath(positionedPoints, plotBottom);
 
   const updateHoveredPoint = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!positionedPoints.length) return;
@@ -64,20 +81,13 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
     setHoveredIndex(Math.round(ratio * (positionedPoints.length - 1)));
   };
 
-  const tooltipPosition = activePoint
-    ? activePoint.x < 210
-      ? "is-left"
-      : activePoint.x > 790
-        ? "is-right"
-        : ""
-    : "";
-  const tooltipVerticalPosition = activePoint && activePoint.y < 92 ? "is-below" : "";
-
   return (
     <div
+      ref={container}
       className="proxy-traffic-chart"
       role="img"
-      aria-label="Proxy traffic trend by date"
+      aria-label={translate("Proxy traffic trend by date")}
+      aria-describedby={activePoint ? tooltipId : undefined}
       onPointerMove={updateHoveredPoint}
       onPointerLeave={() => setHoveredIndex(undefined)}
     >
@@ -109,8 +119,8 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
               className="proxy-traffic-chart-axis proxy-traffic-chart-date"
               key={`${point.label}-${index}`}
               x={point.x}
-              y={plotBottom + 30}
-              textAnchor="middle"
+              y={plotBottom + 17}
+              textAnchor={positionedPoints.length > 1 && index === positionedPoints.length - 1 ? "end" : "middle"}
             >
               {formatHistoryDateLabel(point.label)}
             </text>
@@ -140,29 +150,25 @@ export function TrafficChart({ points }: { points: ProxyTrafficHistoryPoint[] })
               y2={plotBottom}
             />
             <circle className="proxy-traffic-chart-active-ring" cx={activePoint.x} cy={activePoint.y} r="8" />
-            <circle className="proxy-traffic-chart-active-dot" cx={activePoint.x} cy={activePoint.y} r="4" />
+            <circle ref={activeDot} className="proxy-traffic-chart-active-dot" cx={activePoint.x} cy={activePoint.y} r="4" />
           </g>
         )}
       </svg>
 
       {activePoint && (
-        <div
-          className={`proxy-traffic-chart-tooltip ${tooltipPosition} ${tooltipVerticalPosition}`}
-          style={{
-            left: `${activePoint.x / chartWidth * 100}%`,
-            top: `${activePoint.y / chartHeight * 100}%`,
-          }}
-        >
-          <strong>{formatHistoryDateLabel(activePoint.label)}</strong>
-          <span>
-            <span>Traffic</span>
-            <b>{humanBytes(activePoint.used_bytes)}</b>
-          </span>
-          <span>
-            <span>Requests</span>
-            <b>{numberFormatter.format(activePoint.requests)}</b>
-          </span>
-        </div>
+        <TooltipContent id={tooltipId} anchor={tooltipAnchor} side={activePoint.y < 92 ? "bottom" : "top"} interactive={false}>
+          <div className="traffic-tooltip-details">
+            <strong>{formatHistoryDateLabel(activePoint.label)}</strong>
+            <span>
+              <span>{translate("Traffic")}</span>
+              <b>{humanBytes(activePoint.used_bytes)}</b>
+            </span>
+            <span>
+              <span>{translate("Requests")}</span>
+              <b>{activePoint.requests.toLocaleString(formattingLocale())}</b>
+            </span>
+          </div>
+        </TooltipContent>
       )}
     </div>
   );

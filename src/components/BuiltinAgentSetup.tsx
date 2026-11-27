@@ -1,3 +1,5 @@
+import { translate } from "../shared/lib/i18n";
+import { Select, Tooltip } from "../shared/ui";
 import { useCallback, useEffect, useState } from "react";
 import { BUILTIN_AGENT_ID } from "../agents";
 import { invoke } from "../electronBridge";
@@ -7,6 +9,7 @@ import {
   DEFAULT_BUILTIN_PROVIDER,
   builtinAgentSettings,
   builtinProvider,
+  freeOpenRouterOptions,
   type BuiltinAgentStatus,
   type BuiltinModelList,
   type BuiltinModelOption,
@@ -38,7 +41,7 @@ function modelLabel(model: BuiltinModelOption): string {
  * key goes to the main process on Save and never comes back; the field is
  * cleared as soon as it is saved.
  */
-export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
+export function BuiltinAgentSetup({ onReady, initialProvider, activateOnSave = true }: { onReady?: () => void; initialProvider?: BuiltinProviderId; activateOnSave?: boolean }) {
   const agentId = useStore((s) => s.agentId);
   const switchAgent = useStore((s) => s.switchAgent);
   const refreshBuiltinAgent = useStore((s) => s.refreshBuiltinAgent);
@@ -56,8 +59,10 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
   const [saved, setSaved] = useState(false);
   const preset = builtinProvider(provider);
   const keySaved = !!status?.keys[provider];
-  const keyReady = keySaved || !preset.keyRequired;
+  const keyReady = provider === "nvidia" || keySaved || !preset.keyRequired;
   const baseURLReady = provider !== "custom" || !!baseURL.trim();
+  const freeModels = provider === "openrouter" ? freeOpenRouterOptions(models) : [];
+  const modelReady = provider === "openrouter" ? freeModels.some(option => option.value === model) : !!model.trim();
 
   const loadModels = useCallback(async (target: BuiltinProviderId, targetURL: string, current: string) => {
     setBusy("models");
@@ -65,7 +70,7 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
     try {
       const list = await invoke<BuiltinModelList>("builtin_agent_models", { provider: target, baseURL: targetURL });
       setModels(list.models);
-      if (list.error) setModelsNote(`${list.error} You can still type a model ID.`);
+      if (list.error) setModelsNote(target === "openrouter" ? list.error : `${list.error} You can still type a model ID.`);
       const keep = current && (list.models.some((item) => item.id === current) || !list.models.length);
       setModel(keep ? current : list.defaultModel || list.models[0]?.id || "");
     } catch (failure) {
@@ -80,16 +85,17 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
     let active = true;
     void invoke<BuiltinAgentStatus>("builtin_agent_status").then((next) => {
       if (!active) return;
-      const settings = builtinAgentSettings(next);
+      const saved = builtinAgentSettings(next);
+      const settings = initialProvider && initialProvider !== saved.provider ? { provider: initialProvider, baseURL: "", model: "" } : saved;
       setStatus(next);
       setProvider(settings.provider);
       setBaseURL(settings.baseURL);
       setModel(settings.model);
-      const hasKey = !!next.keys[settings.provider] || !builtinProvider(settings.provider).keyRequired;
+      const hasKey = settings.provider === "nvidia" || !!next.keys[settings.provider] || !builtinProvider(settings.provider).keyRequired;
       if (hasKey && (settings.provider !== "custom" || settings.baseURL)) void loadModels(settings.provider, settings.baseURL, settings.model);
     }).catch((failure) => { if (active) setError(errorText(failure)); });
     return () => { active = false; };
-  }, [loadModels]);
+  }, [loadModels, initialProvider]);
 
   const chooseProvider = (next: BuiltinProviderId) => {
     if (next === provider) return;
@@ -105,7 +111,7 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
     const sameAsSaved = status?.settings.provider === next;
     const nextModel = sameAsSaved ? status?.settings.model ?? "" : "";
     setModel(nextModel);
-    if ((status?.keys[next] || !builtinProvider(next).keyRequired) && (next !== "custom" || baseURL.trim())) {
+    if ((next === "nvidia" || status?.keys[next] || !builtinProvider(next).keyRequired) && (next !== "custom" || baseURL.trim())) {
       void loadModels(next, baseURL, nextModel);
     }
   };
@@ -137,6 +143,8 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
       setModels([]);
       setTest(undefined);
       trackEvent("builtin_agent_key_removed", { provider });
+      setReplacingKey(false);
+      if (provider === "nvidia") await loadModels(provider, "", "");
       await refreshBuiltinAgent();
     } catch (failure) {
       setError(errorText(failure));
@@ -166,9 +174,13 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
     try {
       const next = await invoke<BuiltinAgentStatus>("builtin_agent_settings_save", { provider, baseURL, model });
       setStatus(next);
+      if (provider === "openrouter" && !next.configured) {
+        setError(next.problem || translate("OpenRouter is unavailable. Try again."));
+        return;
+      }
       setSaved(true);
       trackEvent("builtin_agent_saved", { provider, configured: next.configured });
-      if (agentId !== BUILTIN_AGENT_ID) switchAgent(BUILTIN_AGENT_ID);
+      if (activateOnSave && agentId !== BUILTIN_AGENT_ID) switchAgent(BUILTIN_AGENT_ID);
       await refreshBuiltinAgent();
       if (next.configured) onReady?.();
     } catch (failure) {
@@ -180,7 +192,7 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
 
   return (
     <div className="builtin-agent-setup">
-      <div className="builtin-agent-providers" role="radiogroup" aria-label="Model provider">
+      <div className="builtin-agent-providers" role="radiogroup" aria-label={translate("Model provider")}>
         {BUILTIN_PROVIDERS.map((item) => (
           <button
             type="button"
@@ -188,24 +200,24 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
             aria-checked={item.id === provider}
             key={item.id}
             className={"builtin-agent-provider" + (item.id === provider ? " is-selected" : "")}
+            disabled={!status || !!busy}
             onClick={() => chooseProvider(item.id)}
           >
             <span className="builtin-agent-provider-head">
               <strong>{item.name}</strong>
-              {item.id === DEFAULT_BUILTIN_PROVIDER && <span className="experimental-pill">Free</span>}
+              {item.id === DEFAULT_BUILTIN_PROVIDER && <span className="experimental-pill">{translate("Free")}</span>}
               {status?.keys[item.id] && <Icon name="checkmark.circle.fill" size={14} className="ok" />}
             </span>
             <span className="muted small">{item.limits}</span>
           </button>
         ))}
       </div>
-      <p className="muted small builtin-agent-data-use">
-        Your tasks and the page text the agent reads are sent to {provider === "custom" ? "the provider you enter" : preset.name}. {preset.dataUse}
+      <p className="muted small builtin-agent-data-use">{translate("Your tasks and the page text the agent reads are sent to")} {provider === "custom" ? translate("the provider you enter") : preset.name}. {preset.dataUse}
       </p>
 
       {provider === "custom" && (
         <label className="modal-field">
-          <span>Base URL</span>
+          <span>{translate("Base URL")}</span>
           <input
             value={baseURL}
             placeholder="http://localhost:11434/v1"
@@ -216,21 +228,22 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
         </label>
       )}
 
-      <div className="modal-field">
+      {provider === "nvidia" && !keySaved && !replacingKey && <button type="button" className="mini" onClick={() => setReplacingKey(true)}>{translate("Use a personal NVIDIA key")}</button>}
+      {provider !== "openrouter" && (provider !== "nvidia" || keySaved || replacingKey) && <div className="modal-field">
         <span className="modal-field-heading">
-          <span>{preset.keyRequired ? "API key" : "API key (optional)"}</span>
+          <span>{preset.keyRequired ? translate("API key") : translate("API key (optional)")}</span>
           {preset.keyURL && (
             <a href={preset.keyURL} target="_blank" rel="noreferrer" onClick={() => trackEvent("builtin_agent_key_link_opened", { provider })}>
-              Get a free key <Icon name="arrow.up.forward.app" size={11} />
+              {provider === "anthropic" || provider === "deepseek" ? translate("Get an API key") : translate("Get a free key")} <Icon name="arrow.up.forward.app" size={11} />
             </a>
           )}
         </span>
         {keySaved && !replacingKey ? (
           <div className="builtin-agent-key-saved">
             <Icon name="lock.fill" size={12} />
-            <span className="muted small">Key saved, encrypted on this computer.</span>
-            <button type="button" className="mini" disabled={!!busy} onClick={() => setReplacingKey(true)}>Replace</button>
-            <button type="button" className="mini" disabled={!!busy} onClick={() => void removeKey()}>Remove</button>
+            <span className="muted small">{translate("Key saved, encrypted on this computer.")}</span>
+            <button type="button" className="mini" disabled={!!busy} onClick={() => setReplacingKey(true)}>{translate("Replace")}</button>
+            <button type="button" className="mini" disabled={!!busy} onClick={() => void removeKey()}>{translate("Remove")}</button>
           </div>
         ) : (
           <form className="builtin-agent-key-row" onSubmit={(event) => { event.preventDefault(); void saveKey(); }}>
@@ -238,64 +251,65 @@ export function BuiltinAgentSetup({ onReady }: { onReady?: () => void }) {
               type="password"
               autoComplete="off"
               spellCheck={false}
-              aria-label={`${preset.name} API key`}
+              aria-label={translate("%1 API key", preset.name)}
               value={keyDraft}
-              placeholder={preset.keyRequired ? "Paste your key" : "Only if your server needs one"}
+              placeholder={preset.keyRequired ? translate("Paste your key") : translate("Only if your server needs one")}
               onChange={(event) => setKeyDraft(event.target.value)}
             />
             <button type="submit" className="mini primary-mini" disabled={!keyDraft.trim() || !!busy}>
-              {busy === "key" ? <Spinner size={11} /> : null} Save key
-            </button>
+              {busy === "key" ? <Spinner size={11} /> : null} {translate("Save key")}</button>
           </form>
         )}
         {status && !status.secureStorage && (
-          <span className="warn small">Secure key storage is unavailable on this computer, so a key cannot be saved.</span>
+          <span className="warn small">{translate("Secure key storage is unavailable on this computer, so a key cannot be saved.")}</span>
         )}
-      </div>
+      </div>}
 
-      <label className="modal-field">
+      <div className="modal-field">
         <span className="modal-field-heading">
-          <span>Model</span>
-          <button
+          <span>{translate("Model")}</span>
+          <Tooltip content={translate("Reload the provider's models")}><button
             type="button"
             className="plain-icon-btn plain-icon-btn-compact"
-            title="Reload the provider's models"
-            aria-label="Reload the provider's models"
+            aria-label={translate("Reload the provider's models")}
             disabled={!keyReady || !baseURLReady || !!busy}
             onClick={() => void loadModels(provider, baseURL, model)}
           >
             {busy === "models" ? <Spinner size={11} /> : <Icon name="arrow.clockwise" size={11} />}
-          </button>
+          </button></Tooltip>
         </span>
-        {models.length ? (
-          <select value={model} onChange={(event) => { setModel(event.target.value); setTest(undefined); setSaved(false); }}>
+        {provider === "openrouter" ? (
+          <Select label={translate("Free OpenRouter model")} searchPlaceholder={translate("Search free models…")} value={model}
+            options={freeModels} disabled={!freeModels.length || !!busy}
+            onChange={value => { setModel(value); setTest(undefined); setSaved(false); }} />
+        ) : models.length ? (
+          <select aria-label={translate("Model")} value={model} onChange={(event) => { setModel(event.target.value); setTest(undefined); setSaved(false); }}>
             {!models.some((item) => item.id === model) && model && <option value={model}>{model}</option>}
             {models.map((item) => <option key={item.id} value={item.id}>{modelLabel(item)}</option>)}
           </select>
         ) : (
           <input
             value={model}
+            aria-label={translate("Model")}
             spellCheck={false}
-            placeholder={keyReady ? "Model ID, such as llama3.1" : "Save a key to load the models"}
+            placeholder={keyReady ? translate("Model ID, such as llama3.1") : translate("Save a key to load the models")}
             onChange={(event) => { setModel(event.target.value); setTest(undefined); setSaved(false); }}
           />
         )}
-        {modelsNote && <small className="muted">{modelsNote}</small>}
-      </label>
+        {modelsNote && <small className="muted" role="status">{modelsNote}</small>}
+      </div>
 
       <div className="builtin-agent-actions">
-        <button type="button" className="mini" disabled={!keyReady || !baseURLReady || !model.trim() || !!busy} onClick={() => void runTest()}>
-          {busy === "test" ? <Spinner size={11} /> : <Icon name="checkmark.seal.fill" size={12} />} Test
-        </button>
-        <button type="button" className="mini primary-mini" disabled={!keyReady || !baseURLReady || !model.trim() || !!busy} onClick={() => void save()}>
-          {busy === "save" ? <Spinner size={11} /> : null} Use this model
-        </button>
-        {saved && status?.configured && <span className="ok small" role="status">Saved. The Nextbrowser agent is ready.</span>}
+        <button type="button" className="mini" disabled={!keyReady || !baseURLReady || !modelReady || !!busy} onClick={() => void runTest()}>
+          {busy === "test" ? <Spinner size={11} /> : <Icon name="checkmark.seal.fill" size={12} />} {translate("Test")}</button>
+        <button type="button" className="mini primary-mini" disabled={!keyReady || !baseURLReady || !modelReady || !!busy} onClick={() => void save()}>
+          {busy === "save" ? <Spinner size={11} /> : null} {translate("Use this model")}</button>
+        {saved && status?.configured && <span className="ok small" role="status">{translate("Saved. The Nextbrowser agent is ready.")}</span>}
       </div>
 
       {test && (
         <div className={(test.ok && test.tools === "ok" ? "ok" : test.ok ? "warn" : "error") + " small builtin-agent-test"} role="status">
-          <span>Key: {TEST_LABELS[test.key]} · Tool calling: {TEST_LABELS[test.tools]}</span>
+          <span>{translate("Key:")} {TEST_LABELS[test.key]} {translate("· Tool calling:")} {TEST_LABELS[test.tools]}</span>
           <span>{test.message}</span>
         </div>
       )}

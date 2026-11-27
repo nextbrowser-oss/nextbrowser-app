@@ -1,3 +1,5 @@
+import { translate } from "../shared/lib/i18n";
+import { Tooltip } from "../shared/ui";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { invoke } from "../electronBridge";
 import {
@@ -82,10 +84,9 @@ export function MultiloginChatProfilePickerView({
 
   return (
     <div className="multilogin-chat-picker">
-      <button
+      <Tooltip content={selection ? translate("Change Multilogin profile · %1", selection.name) : translate("Choose a Multilogin profile")}><button
         type="button"
         className={`profile-pill multilogin-profile-trigger${selection ? " is-selected" : ""}${open ? " is-open" : ""}${!connected ? " is-warning" : ""}`}
-        title={selection ? `Change Multilogin profile · ${selection.name}` : "Choose a Multilogin profile"}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={onToggle}
@@ -93,32 +94,31 @@ export function MultiloginChatProfilePickerView({
         <img src="./multilogin-icon.svg" alt="" />
         <span>{triggerLabel}</span>
         {checking ? <Spinner size={10} /> : <Icon name="chevron.down" size={10} className="multilogin-profile-chevron" />}
-      </button>
+      </button></Tooltip>
 
       {open && (
-        <div className="multilogin-chat-menu" role="dialog" aria-label="Choose Multilogin profile">
+        <div className="multilogin-chat-menu" role="dialog" aria-label={translate("Choose Multilogin profile")}>
           <div className="multilogin-chat-menu-head">
             <span>
-              <strong>Multilogin profile</strong>
-              <small>Used by this chat</small>
+              <strong>{translate("Multilogin profile")}</strong>
+              <small>{translate("Used by this chat")}</small>
             </span>
-            <button type="button" className="plain-icon-btn" onClick={onRefresh} disabled={refreshing} aria-label="Refresh Multilogin profiles">
+            <button type="button" className="plain-icon-btn" onClick={onRefresh} disabled={refreshing} aria-label={translate("Refresh Multilogin profiles")}>
               {refreshing ? <Spinner size={13} /> : <Icon name="arrow.clockwise" size={13} />}
             </button>
-            <button type="button" className="plain-icon-btn" onClick={onClose} aria-label="Close profile picker">
+            <button type="button" className="plain-icon-btn" onClick={onClose} aria-label={translate("Close profile picker")}>
               <Icon name="xmark" size={14} />
             </button>
           </div>
 
-          <div className="multilogin-chat-tabs" role="tablist" aria-label="Multilogin profile type">
+          <div className="multilogin-chat-tabs" role="tablist" aria-label={translate("Multilogin profile type")}>
             <button
               type="button"
               role="tab"
               aria-selected={profileKind === "browser"}
               className={profileKind === "browser" ? "active" : ""}
               onClick={() => onProfileKindChange("browser")}
-            >
-              Browsers <span>{browserProfiles.length}</span>
+            >{translate("Browsers")} <span>{browserProfiles.length}</span>
             </button>
             <button
               type="button"
@@ -126,8 +126,7 @@ export function MultiloginChatProfilePickerView({
               aria-selected={profileKind === "mobile"}
               className={profileKind === "mobile" ? "active" : ""}
               onClick={() => onProfileKindChange("mobile")}
-            >
-              Phones <span>{cloudPhones.length}</span>
+            >{translate("Phones")} <span>{cloudPhones.length}</span>
             </button>
           </div>
 
@@ -137,8 +136,8 @@ export function MultiloginChatProfilePickerView({
               ref={searchRef}
               type="search"
               value={query}
-              placeholder={profileKind === "browser" ? "Search browser profiles" : "Search cloud phones"}
-              aria-label={profileKind === "browser" ? "Search browser profiles" : "Search cloud phones"}
+              placeholder={profileKind === "browser" ? translate("Search browser profiles") : translate("Search cloud phones")}
+              aria-label={profileKind === "browser" ? translate("Search browser profiles") : translate("Search cloud phones")}
               onChange={(event) => onQueryChange(event.target.value)}
             />
           </label>
@@ -147,13 +146,13 @@ export function MultiloginChatProfilePickerView({
             <div className="multilogin-chat-error" role="alert">
               <span>{shownError}</span>
               {offerReconnect && onReconnect && (
-                <button type="button" className="connector-empty-create" onClick={onReconnect}>Reconnect Multilogin</button>
+                <button type="button" className="connector-empty-create" onClick={onReconnect}>{translate("Reconnect Multilogin")}</button>
               )}
             </div>
           )}
 
           {!connectionError && (
-            <div className="multilogin-chat-options" role="listbox" aria-label={profileKind === "browser" ? "Browser profiles" : "Cloud phones"}>
+            <div className="multilogin-chat-options" role="listbox" aria-label={profileKind === "browser" ? translate("Browser profiles") : translate("Cloud phones")}>
               {visibleProfiles.map((profile) => {
                 const selected = multiloginProfileSelected(selection, profileKind, profile);
                 return (
@@ -168,23 +167,23 @@ export function MultiloginChatProfilePickerView({
                     <span className="multilogin-chat-radio">{selected && <Icon name="checkmark" size={10} />}</span>
                     <span>
                       <strong>{profile.name}</strong>
-                      <small>{profile.status || (profileKind === "browser" ? "Mimic browser" : "Cloud phone")}</small>
+                      <small>{profile.status || (profileKind === "browser" ? translate("Mimic browser") : translate("Cloud phone"))}</small>
                     </span>
                   </button>
                 );
               })}
               {!visibleProfiles.length && (
                 <div className="multilogin-chat-empty">
-                  {query.trim() ? "No matching profiles" : `No ${profileKind === "browser" ? "browser profiles" : "cloud phones"} found`}
+                  {query.trim() ? translate("No matching profiles") : translate("No %1 found", profileKind === "browser" ? "browser profiles" : "cloud phones")}
                 </div>
               )}
             </div>
           )}
 
           <div className="multilogin-chat-menu-foot">
-            {selection && <button type="button" onClick={onClear}>Clear selection</button>}
+            {selection && <button type="button" onClick={onClear}>{translate("Clear selection")}</button>}
             <span className="spacer" />
-            <button type="button" onClick={onManage}>Manage connector</button>
+            <button type="button" onClick={onManage}>{translate("Manage connector")}</button>
           </div>
         </div>
       )}

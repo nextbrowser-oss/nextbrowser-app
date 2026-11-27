@@ -1,0 +1,13 @@
+{
+  "description": "包含 To do、In progress、Done 三列的任务看板。",
+  "useCases": [
+    "在三列中管理任务，随进度移动。",
+    "智能体可以添加任务、编辑备注、移动卡片。"
+  ],
+  "requirements": "任务保存在本地，归属你的 Nextbrowser 账户，无需另外登录。",
+  "example": "把发布清单移到 In progress。",
+  "screenshots": {
+    "board.png": "示例任务看板",
+    "editor.png": "任务编辑器"
+  }
+}

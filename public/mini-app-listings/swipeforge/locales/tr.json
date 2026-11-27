@@ -1,0 +1,13 @@
+{
+  "description": "SwipeForge ile yapay zekâ videoları, görselleri ve gönderileri; sosyal hesaplarınızda yayında.",
+  "useCases": [
+    "Metinden video, görsel, gönderi veya seslendirme üretin.",
+    "İşlemeyi takip edin ve TikTok, Instagram, YouTube veya X’te yayınlayın."
+  ],
+  "requirements": "Nextbrowser hesabınızla giriş yapın. Üretim sınırları SwipeForge seviyenize göre belirlenir. Gönderiler yalnızca onayınızdan sonra yayınlanır.",
+  "example": "5 saniyelik dikey video yap: yağmurlu neon sokakta kâğıt bir tekne.",
+  "screenshots": {
+    "workspace.png": "Video oluşturma",
+    "connect.png": "SwipeForge bağlama"
+  }
+}

@@ -38,7 +38,7 @@ function createRuntimeInstallCoordinator({ checkForUpdates, installRuntime, onSt
     onStatus(result);
     return result;
   }
-  function start(runtime, retry) {
+  function start(runtime, retry, missingOnly) {
     const controller = new AbortController();
     const job = { runtime, controller, status: { status: "installing", phase: "checking", canCancel: true, message: "Checking download availability…" } };
     jobs.set(runtime, job);
@@ -46,7 +46,7 @@ function createRuntimeInstallCoordinator({ checkForUpdates, installRuntime, onSt
     job.promise = Promise.resolve().then(async () => {
       try {
         const result = await installSelectedRuntimeUpdates({
-          requestedRuntimes: [runtime], retryRuntimes: retry ? [runtime] : [],
+          requestedRuntimes: [runtime], retryRuntimes: retry ? [runtime] : [], missingOnly,
           signal: controller.signal, checkForUpdates,
           installRuntime: (update, report) => installRuntime(update, report, controller.signal),
           onStatus: (status) => {
@@ -65,16 +65,20 @@ function createRuntimeInstallCoordinator({ checkForUpdates, installRuntime, onSt
     return job;
   }
   return {
+    pending(runtime) {
+      const job = jobs.get(runtime);
+      return job?.status.status === "installing" ? job.promise : undefined;
+    },
     isActive: () => [...jobs.values()].some((job) => job.status.status === "installing"),
     snapshot,
-    async install(requested) {
+    async install(requested, { missingOnly = false } = {}) {
       const runtimes = [...new Set((Array.isArray(requested) ? requested : []).filter((runtime) => Object.hasOwn(names, runtime)))];
       if (!runtimes.length) return snapshot();
       const retry = new Set([...jobs.values()].filter((job) => job.status.status === "failed" || job.status.status === "partial").map((job) => job.runtime));
       if (![...jobs.values()].some((job) => job.status.status === "installing")) jobs.clear();
       const selected = runtimes.map((runtime) => {
         const existing = jobs.get(runtime);
-        return existing?.status.status === "installing" ? existing : start(runtime, retry.has(runtime));
+        return existing?.status.status === "installing" ? existing : start(runtime, retry.has(runtime), missingOnly);
       });
       publish();
       await Promise.all(selected.map((job) => job.promise));

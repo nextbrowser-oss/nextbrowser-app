@@ -1,7 +1,9 @@
 import type { MultiloginProfileSelection } from "./multiloginSelection";
 
+export type LocalLiveTarget = { runtime: "clawbrowser" | "dasbrowser" | "camoufox"; profile?: string };
+
 export type LiveStreamTarget =
-  | { runtime: "clawbrowser" | "dasbrowser" | "camoufox"; profile?: string }
+  | LocalLiveTarget
   | { runtime: "multilogin"; selection: MultiloginProfileSelection };
 
 export function multiloginSessionName(selection: MultiloginProfileSelection): string {
@@ -11,7 +13,13 @@ export function multiloginSessionName(selection: MultiloginProfileSelection): st
 
 export function nextctlRemoteArgs(target: LiveStreamTarget): string[] {
   if (target.runtime !== "multilogin") {
-    return ["remote", ...(target.runtime !== "clawbrowser" ? ["--runtime", target.runtime] : []), ...(target.profile ? ["--profile", target.profile] : []), "--include-viewer-url", "--format", "json"];
+    return [
+      "remote",
+      ...(target.runtime !== "clawbrowser" ? ["--runtime", target.runtime] : []),
+      ...(target.profile ? ["--profile", target.profile] : []),
+      "--quality", "78", "--max-width", "1600", "--max-height", "900",
+      "--include-viewer-url", "--format", "json",
+    ];
   }
 
   const { selection } = target;
@@ -24,6 +32,7 @@ export function nextctlRemoteArgs(target: LiveStreamTarget): string[] {
     ...common,
     "--profile", multiloginSessionName(selection),
     "--multilogin-profile-id", selection.id,
+    "--multilogin-headless",
     "start", "--remote", "--format", "json",
   ];
 }

@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("nextbrowser", {
+  trackAccountActivity: owner => ipcRenderer.send("account-activity:owner", owner),
+  platform: process.platform,
+  customWindowControls: process.argv.includes("--nextbrowser-custom-caption"),
   invoke: (command, args = {}) => ipcRenderer.invoke("nextbrowser:invoke", command, args),
   filePathForFile: (file) => webUtils.getPathForFile(file),
   on: (channel, listener) => {
@@ -8,6 +11,7 @@ contextBridge.exposeInMainWorld("nextbrowser", {
     ipcRenderer.on(channel, wrapped);
     return () => ipcRenderer.removeListener(channel, wrapped);
   },
+  scheduleFlushed: () => { ipcRenderer.send("nextbrowser:schedule-flushed"); },
   // Error reporting is fire-and-forget: a report must never wait on, or fail
   // with, the main process. The main process validates and scrubs both.
   reportError: (event) => { ipcRenderer.send("nextbrowser:client-error", event); },

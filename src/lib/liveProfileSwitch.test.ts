@@ -1,29 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  clawbrowserTargetKey,
   createLiveStartTurns,
-  liveSwitchStartsStream,
-  multiloginTargetKey,
 } from "./liveProfileSwitch";
-
-const statuses = { work: "running", spare: "stopped" };
-
-describe("Live profile switch", () => {
-  it("streams the newly picked running profile while a stream is on", () => {
-    expect(liveSwitchStartsStream(true, clawbrowserTargetKey("work"), statuses)).toBe(true);
-    expect(liveSwitchStartsStream(true, multiloginTargetKey({ kind: "browser", id: "p1", name: "Work" }), statuses)).toBe(true);
-  });
-
-  it("leaves a stopped profile to the Stream button", () => {
-    expect(liveSwitchStartsStream(true, clawbrowserTargetKey("spare"), statuses)).toBe(false);
-    expect(liveSwitchStartsStream(true, clawbrowserTargetKey("unknown"), statuses)).toBe(false);
-    expect(liveSwitchStartsStream(true, "", statuses)).toBe(false);
-  });
-
-  it("does not start a stream that was off", () => {
-    expect(liveSwitchStartsStream(false, clawbrowserTargetKey("work"), statuses)).toBe(false);
-  });
-});
 
 describe("Live start turns", () => {
   it("keeps a replaced start's session closed before the next one opens", async () => {

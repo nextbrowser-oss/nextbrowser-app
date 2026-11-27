@@ -11,3 +11,5 @@ screenshots
 .xwin-cache
 xwin-cache
 e2e-out/
+build/live-window-helper.exe
+build/live-window-helper

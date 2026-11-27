@@ -46,7 +46,7 @@ describe("AgentConnectionGate", () => {
     const html = renderToStaticMarkup(<AgentConnectionGate onDismiss={() => undefined} />);
 
     expect(html).toContain('aria-label="Close agent setup"');
-    expect(html).toContain('title="Close"');
+    expect(html).toMatch(/<button[^>]*aria-label="Close agent setup"[^>]*data-tooltip-id=/);
   });
 
   it("does not advertise a selection as connected before Connect is pressed", () => {
@@ -59,7 +59,7 @@ describe("AgentConnectionGate", () => {
   it("offers a free model next to the agent CLIs", () => {
     const html = renderToStaticMarkup(<AgentConnectionGate onDismiss={() => undefined} />);
     expect(html).toContain("Use a free model");
-    expect(html).toContain("Nothing else to install.");
+    expect(html).toContain("Your Nextbrowser account includes Nemotron 3.5 Super on OpenRouter.");
     expect(html).not.toContain("No agent CLI on this computer?");
     expect(html).not.toContain("builtin-agent-setup");
   });
@@ -68,13 +68,14 @@ describe("AgentConnectionGate", () => {
     Object.assign(state.runtime.claude, { error: "Claude Code CLI not found. Nextbrowser needs the Claude Code CLI, not the Claude desktop app, to connect. Install the CLI, then try again." });
     try {
       const missing = renderToStaticMarkup(<AgentConnectionGate onDismiss={() => undefined} />);
-      expect(missing).toContain("No agent CLI on this computer? The built-in Nextbrowser agent");
+      expect(missing).toContain("No agent CLI on this computer? Your Nextbrowser account includes Nemotron 3.5 Super on OpenRouter.");
       expect(missing).toContain("agent-gate-free is-suggested");
       state.startupAgentSuggestion = "nextbrowser";
       Object.assign(state.runtime, { nextbrowser: { version: undefined, loggedIn: null, error: "Set up the Nextbrowser agent in Settings → Agent.", authorizing: false } });
       const chosen = renderToStaticMarkup(<AgentConnectionGate onDismiss={() => undefined} />);
       expect(chosen).toContain("builtin-agent-setup");
-      expect(chosen).toContain('href="https://build.nvidia.com"');
+      expect(chosen).toContain("Free OpenRouter model");
+      expect(chosen).not.toContain('aria-label="NVIDIA API key"');
       expect(chosen).not.toContain("agent-gate-connect");
       expect(chosen).not.toContain("Set up the Nextbrowser agent in Settings");
     } finally {

@@ -1,0 +1,44 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const http = require('node:http');
+const { createStartPageServer } = require('./start-page-server.cjs');
+
+test('start page scopes persisted shortcuts and blocks foreign origins, host spoofing and unsafe URLs', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'nextbrowser-start-test-'));
+  await fs.writeFile(path.join(dir, 'start.html'), '<html><head></head><body>Start</body></html>');
+  let allowed = true;
+  const server = createStartPageServer({ distDir: dir, storageDir: dir, requestDesktop: async scope => {
+    if (!allowed) throw new Error('Profile removed.'); return { profile: scope.profile };
+  } });
+  t.after(async () => { await server.close(); await fs.rm(dir, { recursive: true, force: true }); });
+  const sender = { isDestroyed: () => false };
+  const first = await server.open({ sender, workspaceId: 'one', runtime: 'clawbrowser', profile: 'first' });
+  const second = await server.open({ sender, workspaceId: 'one', runtime: 'clawbrowser', profile: 'second' });
+  const origin = new URL(first).origin;
+  const write = (url, body, headers = {}) => fetch(url, { method: 'PUT', headers: { Origin: origin, 'X-Nextbrowser-Start': '1', 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  assert.match(await (await fetch(first)).text(), /<base href="\/">/);
+  const navigation = await new Promise((resolve, reject) => http.get(first, { headers: { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' } }, response => { response.resume(); resolve(response.statusCode); }).on('error', reject));
+  assert.equal(navigation, 200, 'an existing browser tab can navigate to its start page');
+  const pin = { id: 'one', name: 'Docs', url: 'https://example.com/docs' };
+  assert.equal((await write(first + 'pins', [pin])).status, 200);
+  assert.deepEqual((await (await fetch(first + 'state')).json()).pins, [pin]);
+  assert.deepEqual((await (await fetch(second + 'state')).json()).pins, []);
+  assert.equal((await fetch(first + 'state', { headers: { Origin: 'https://evil.example' } })).status, 403);
+  const spoofedHost = await new Promise((resolve, reject) => http.get(first, { headers: { Host: 'evil.example' } }, response => { response.resume(); resolve(response.statusCode); }).on('error', reject));
+  assert.equal(spoofedHost, 403);
+  assert.equal((await write(first + 'pins', [], { Origin: 'https://evil.example' })).status, 403);
+  assert.equal((await write(first + 'pins', [], { 'X-Nextbrowser-Start': '' })).status, 403);
+  assert.equal((await write(first + 'pins', [{ ...pin, url: 'javascript:alert(1)' }])).status, 400);
+  assert.equal((await write(first + 'pins', [{ ...pin, url: 'https://user:secret@example.com' }])).status, 400);
+  assert.equal((await fetch(origin + '/start/' + '0'.repeat(32) + '/state')).status, 404);
+  assert.equal((await fetch(origin + '/index.html')).status, 404);
+  assert.equal((await fetch(origin + '/assets/%2e%2e%2fstart.html')).status, 404);
+  const freshScope = await server.open({ sender: { isDestroyed: () => false }, workspaceId: 'one', runtime: 'clawbrowser', profile: 'first' });
+  assert.deepEqual((await (await fetch(freshScope + 'state')).json()).pins, [pin]);
+  allowed = false;
+  assert.equal((await write(first + 'pins', [])).status, 400);
+  assert.equal((await fetch(first + 'state')).status, 400);
+});

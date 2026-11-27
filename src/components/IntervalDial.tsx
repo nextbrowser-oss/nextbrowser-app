@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import {
   MONITOR_INTERVAL_STEPS,
@@ -119,11 +120,11 @@ export function IntervalDial({ value, onChange, disabled }: {
         viewBox={`0 0 ${SIZE} ${SIZE}`}
         role="slider"
         tabIndex={disabled ? -1 : 0}
-        aria-label="How often monitoring runs"
+        aria-label={translate("How often monitoring runs")}
         aria-valuemin={MONITOR_MIN_INTERVAL_MINUTES}
         aria-valuemax={MONITOR_MAX_INTERVAL_MINUTES}
         aria-valuenow={value}
-        aria-valuetext={`Every ${formatInterval(value)}`}
+        aria-valuetext={translate("Every %1", formatInterval(value))}
         aria-disabled={disabled}
         onKeyDown={disabled ? undefined : onKey}
         onPointerDown={(event) => {
@@ -152,12 +153,12 @@ export function IntervalDial({ value, onChange, disabled }: {
           );
         })}
         <circle cx={knobX} cy={knobY} r={9} className="interval-dial-knob" />
-        <text x={CENTER} y={CENTER - 6} className="interval-dial-caption">every</text>
+        <text x={CENTER} y={CENTER - 6} className="interval-dial-caption">{translate("every")}</text>
         <text x={CENTER} y={CENTER + 16} className="interval-dial-value">{formatInterval(value)}</text>
       </svg>
 
       <div className="interval-dial-side">
-        <div className="interval-dial-presets" role="group" aria-label="Common intervals">
+        <div className="interval-dial-presets" role="group" aria-label={translate("Common intervals")}>
           {PRESETS.map((minutes) => (
             <button
               key={minutes}
@@ -171,9 +172,7 @@ export function IntervalDial({ value, onChange, disabled }: {
             </button>
           ))}
         </div>
-        <label className="interval-dial-exact small muted">
-          Exactly
-          <input
+        <label className="interval-dial-exact small muted">{translate("Exactly")}<input
             type="number"
             min={1}
             step={1}
@@ -192,12 +191,12 @@ export function IntervalDial({ value, onChange, disabled }: {
               applyDraft(draft, unit);
             }}
           >
-            <option value="min">minutes</option>
-            <option value="h">hours</option>
-            <option value="d">days</option>
+            <option value="min">{translate("minutes")}</option>
+            <option value="h">{translate("hours")}</option>
+            <option value="d">{translate("days")}</option>
           </select>
         </label>
-        <span className="muted small">From 1 minute to 7 days.</span>
+        <span className="muted small">{translate("From 1 minute to 7 days.")}</span>
       </div>
     </div>
   );

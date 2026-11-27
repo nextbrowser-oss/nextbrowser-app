@@ -132,7 +132,7 @@ test("adapts the app toolset to nextctl's chromium CDP runtime", () => {
   ]);
 });
 
-test("copies macOS app bundles without resolving their relative framework symlinks", async (t) => {
+test("copies macOS app bundles without resolving their relative framework symlinks", { skip: process.platform === "win32" ? "macOS relative framework links are verified on macOS CI" : false }, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nextbrowser-dasbrowser-copy-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const source = path.join(root, "source", "Dasbrowser.app", "Contents", "Frameworks", "Browser.framework");

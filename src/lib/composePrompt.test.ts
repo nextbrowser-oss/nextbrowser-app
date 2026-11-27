@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage, Conversation } from "../types";
-import { composePrompt } from "./composePrompt";
+import { composePrompt, recentChatHistory } from "./composePrompt";
 import { buildVPSPrompt, VPS_PROMPT_MARKER, vpsConnectionInstructions } from "./vpsPrompt";
 
 function message(
@@ -77,6 +77,7 @@ describe("composePrompt VPS mode", () => {
 
     expect(prompt).toContain("Strict VPS remote-only mode");
     expect(prompt).toContain("Active VPS connection instructions:");
+    expect(prompt).toContain("ask them to complete the check in the browser");
     expect(prompt).toContain("ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=15 -o ConnectionAttempts=1 -o PermitLocalCommand=no prod");
     expect(prompt).toContain("NEXTCTL_AUTO_UPDATE=0");
     expect(prompt).not.toContain("nextctl doctor");
@@ -123,6 +124,7 @@ describe("composePrompt VPS mode", () => {
     expect(prompt).toContain("installed Clawbrowser CLI");
     expect(prompt).toContain("Active Nextbrowser profile: work");
     expect(prompt).toContain("Browser tasks are browser-only");
+    expect(prompt).toContain("If the browser reports a proxy connection failure, stop browser work");
     expect(prompt).toContain("do not scan the user's home directory");
     expect(prompt).toContain("do not use OS automation for Music");
     expect(prompt).not.toContain("Strict VPS remote-only mode");
@@ -188,13 +190,15 @@ describe("composePrompt VPS mode", () => {
 });
 
 describe("composePrompt for the built-in Nextbrowser agent", () => {
-  it("leaves out the CLI instructions and keeps the history and the request", () => {
-    const conv = conversation([message("u1", "user", "Open example.com"), message("a1", "assistant", "Opened it."), message("u2", "user", "Read the title")]);
+  it("keeps the current request separate from history, including when a later turn is queued", () => {
+    const conv = conversation([message("u1", "user", "Open example.com"), message("a1", "assistant", "Opened it."), message("u2", "user", "Read the title"), message("reply", "assistant", ""), message("later", "user", "Another task")]);
     const prompt = composePrompt([conv], conv.id, "reply", "Read the title", "Work", { nextctlAvailable: false, builtinAgent: true });
     expect(prompt).not.toContain("nextctl");
     expect(prompt).not.toContain("command -v");
-    expect(prompt).toContain("User: Open example.com");
-    expect(prompt).toContain("Assistant: Opened it.");
+    expect(prompt).not.toContain("Open example.com");
+    expect(recentChatHistory(conv, "reply")).toEqual([
+      { role: "user", content: "Open example.com" }, { role: "assistant", content: "Opened it." },
+    ]);
     expect(prompt).toContain("[Active Nextbrowser profile: Work]");
     expect(prompt.endsWith("Read the title")).toBe(true);
   });

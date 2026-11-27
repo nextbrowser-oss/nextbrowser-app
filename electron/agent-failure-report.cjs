@@ -92,7 +92,7 @@ function describeAgentResult({ agentId, result, outcome = {}, durationMs, plain 
   return { reason, event: event("AGENT_STOPPED_UNEXPECTEDLY", `${agent} exited with code ${code}: ${reported || "no error line in its output"}`) };
 }
 
-const BUILTIN_PROVIDERS = new Set(["nvidia", "openrouter", "gemini", "custom"]);
+const BUILTIN_PROVIDERS = new Set(Object.keys(require("./builtin-agent-providers.cjs").PROVIDERS));
 const BUILTIN_FAILURE_CODE = /^[a-z][a-z_]{1,31}$/;
 const BUILTIN_MODEL = /^[A-Za-z0-9._:/-]{1,120}$/;
 
@@ -107,13 +107,14 @@ const BUILTIN_MODEL = /^[A-Za-z0-9._:/-]{1,120}$/;
  * the prompt, the base URL, or what the provider answered.
  */
 function describeBuiltinAgentResult({ result, provider, model, outcome = {}, durationMs, run = "chat" }) {
-  if (outcome.stopped || outcome.quitting) return { event: null };
+  if (outcome.stopped || outcome.quitting || result?.status === "cancelled") return { event: null };
   const providerId = BUILTIN_PROVIDERS.has(provider) ? provider : "unknown";
   const failure = result?.failure && typeof result.failure === "object" ? result.failure : null;
   const failureCode = BUILTIN_FAILURE_CODE.test(String(failure?.code || "")) ? failure.code : "unknown";
   const context = {
     agent: "nextbrowser",
     provider: providerId,
+    ...(Number.isInteger(result?.steps) ? { steps: String(result.steps) } : {}),
     ...(providerId !== "custom" && BUILTIN_MODEL.test(String(model || "")) ? { model: String(model) } : {}),
     run: RUNS.has(run) ? run : "chat",
     ...(Number.isFinite(durationMs) ? { duration_ms: String(Math.round(durationMs)) } : {}),
@@ -138,7 +139,7 @@ function describeBuiltinAgentResult({ result, provider, model, outcome = {}, dur
   }
   // Stopping after its step limit is the model's failure, not the user's:
   // reported, to see which models cannot finish their tasks.
-  if (failure.expected === true && failureCode !== "max_steps") return { event: null };
+  if (run !== "chat" && failure.expected === true && failureCode !== "max_steps") return { event: null };
   return { event: event(`BUILTIN_AGENT_${failureCode.toUpperCase()}`, `nextbrowser (${providerId}) failed: ${failureCode}${status.status ? ` (HTTP ${status.status})` : ""}`, { failure: failureCode, ...status }) };
 }
 
@@ -172,7 +173,23 @@ function describeTerminalExit({ agentId, exitCode, signal, uptimeMs, closedByApp
   };
 }
 
+/** The same reference goes to the chat, the clipboard and the client_errors stream. */
+function reportBuiltinRun(details, capture) {
+  const { result } = details;
+  const { event } = describeBuiltinAgentResult(details);
+  if (!event) return result;
+  const ref = "NB-" + require("node:crypto").randomUUID().slice(0, 13).toUpperCase();
+  event.context = { ...event.context, code: event.name, ref };
+  try { capture(event); } catch { /* Diagnostics must not discard the user's report. */ }
+  return {
+    ...result, code: result.code || 1,
+    reason: result.reason || "The agent returned no usable reply. Retry the request.",
+    failure: { ...(result.failure || {code:"empty_reply",expected:false}), diagnosticCode: event.name, ref },
+  };
+}
+
 module.exports = {
+  reportBuiltinRun,
   agentFailureReason,
   describeAgentResult,
   describeBuiltinAgentResult,

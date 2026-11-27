@@ -77,7 +77,15 @@ describe("mandatory proxy startup", () => {
     expect(choose).not.toHaveBeenCalled();
     expect(commands().map((args) => args[4])).toEqual(["stop", "start", "open", "wait"]);
     expect(result.directFallback).toBe(false);
+    expect(result.steps).toContain("Browser verified after retry");
     expect(result.profileArgs).toEqual(["--profile", "work", "--runtime", "clawbrowser"]);
+  });
+  it("stops the proxied session if the tunnel fails after a green check", async () => {
+    nextctl.run.mockResolvedValueOnce({ code: 1, stdout: "", stderr: "ERR_TUNNEL_CONNECTION_FAILED" });
+    const choose = vi.fn();
+    await expect(prepareSession({ ...options, onVerificationFailure: choose })).rejects.toThrow("ERR_TUNNEL_CONNECTION_FAILED");
+    expect(commands().map((args) => args[4])).toEqual(["open", "stop"]);
+    expect(choose).not.toHaveBeenCalled();
   });
   it("does not restart, prompt or open a site if stopping the failed profile fails", async () => {
     nextctl.json.mockResolvedValue(failed);
@@ -135,6 +143,13 @@ describe("mandatory proxy startup", () => {
     await prepareSession({ ...options, statuses: {}, verifyOnly: true, onStep });
     expect(commands().map((args) => args[4])).toEqual(["start"]);
     expect(onStep).toHaveBeenLastCalledWith("Browser verified");
+  });
+  it.each([[true, "0"], [false, "1"]])("starts the right browser mode for Live (native: %s)", async (liveWindow, headless) => {
+    await prepareSession({ ...options, statuses: {}, verifyOnly: true, startupVerifies: true, forLive: true, liveWindow });
+    expect(nextctl.run).toHaveBeenCalledExactlyOnceWith(
+      ["--profile", "work", "--runtime", "clawbrowser", "start", "--format", "json", "--no-remote"],
+      { NBC_START_HEADLESS: headless }, { requestId: "profile-start:work" },
+    );
   });
   it("cancels without restarting when the user stops the pending startup", async () => {
     let active = true;

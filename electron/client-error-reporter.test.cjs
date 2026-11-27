@@ -105,6 +105,38 @@ const exception = (message = "boom", extra = {}) => ({
   ...extra,
 });
 
+test("each paused browser run sends its own chat reference without the task or page output", async t => {
+  const {reportBuiltinRun} = require("./agent-failure-report.cjs");
+  const {reporter, requests} = harness(t);
+  const refs = Array.from({length:3}, () => {
+    const result = reportBuiltinRun({
+      result:{code:1, stdout:"private flight result", reason:"private page text", failure:{code:"no_progress",expected:true}, steps:7},
+      provider:"custom", model:"private model", durationMs:1100, run:"chat",
+    }, event => reporter.capture(event));
+    assert.equal(result.failure.diagnosticCode, "BUILTIN_AGENT_NO_PROGRESS");
+    return result.failure.ref;
+  });
+  await reporter.flush();
+  const events = requests.flatMap(request => request.body.events);
+  assert.deepEqual(events.map(event => event.context.ref), refs);
+  assert.ok(events.every(event => event.context.steps === "7" && event.context.code === "BUILTIN_AGENT_NO_PROGRESS"));
+  assert.ok(!JSON.stringify(events).includes("private"));
+});
+
+test("local diagnostics keep only bounded failure identifiers after a flush and clear on opt-out", async (t) => {
+  const h = harness(t);
+  for (let i = 0; i < 25; i++) {
+    h.reporter.capture(exception("private chat and page text", { context: { code: "LAUNCH_FAILED", ref: `NB-${i.toString(16).toUpperCase().padStart(8, '0')}` } }));
+  }
+  assert.equal(h.reporter.recentErrors.length, 20);
+  assert.deepEqual(Object.keys(h.reporter.recentErrors[0]).sort(), ['code', 'ref']);
+  assert.ok(!JSON.stringify(h.reporter.recentErrors).includes('private chat'));
+  await h.reporter.flush();
+  assert.equal(h.reporter.recentErrors.length, 20);
+  h.reporter.setUserEnabled(false);
+  assert.deepEqual(h.reporter.recentErrors, []);
+});
+
 test("reporting is off in development builds unless forced, and can be forced off", () => {
   assert.equal(errorReportingAllowed({ isDevBuild: false, env: {} }), true);
   assert.equal(errorReportingAllowed({ isDevBuild: true, env: {} }), false);
@@ -310,16 +342,23 @@ test("batches never exceed 20 events", async (t) => {
 test("the quit flush is bounded and never rejects", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "client-errors-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let quitDeadline;
   const reporter = createClientErrorReporter({
     dir,
     client: { version: "1" },
     resolveEndpoint: async () => ({ baseURL: "https://api.test" }),
     fetchImpl: () => new Promise(() => {}),
+    setTimer: (run, delay, { keepAlive } = {}) => {
+      if (keepAlive) quitDeadline = { run, delay };
+      return run;
+    },
+    clearTimer: () => {},
   });
   reporter.capture(exception());
-  const started = Date.now();
-  await reporter.flushBeforeQuit(100);
-  assert.ok(Date.now() - started < 1_000);
+  const flushing = reporter.flushBeforeQuit(100);
+  assert.equal(quitDeadline?.delay, 100);
+  quitDeadline.run();
+  await assert.doesNotReject(flushing);
   assert.ok(fs.existsSync(path.join(dir, "queue.json")), "the queue survives for the next launch");
 });
 

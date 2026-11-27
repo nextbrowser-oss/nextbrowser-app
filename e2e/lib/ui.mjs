@@ -61,7 +61,8 @@ export async function deleteCurrentWorkspace(page) {
  * country search understands; personalProxy: the saved proxy's visible name.
  */
 export async function createProfile(page, { name, connection = "managed", country = "US", toolset = "Clawbrowser", personalProxy }) {
-  await sidebar(page).getByRole("button", { name: "Create profile", exact: true }).click();
+  await page.getByRole("button", { name: "Open Profiles", exact: true }).hover();
+  await page.getByRole("dialog", { name: "Profiles", exact: true }).getByRole("button", { name: "Create browser profile" }).click();
   const dialog = page.getByRole("dialog", { name: "Create profile" });
   await dialog.waitFor();
   try {
@@ -76,19 +77,25 @@ export async function createProfile(page, { name, connection = "managed", countr
 
 async function fillProfileDialog(page, dialog, { name, connection, country, toolset, personalProxy }) {
   await dialog.getByRole("textbox", { name: /Profile name/ }).fill(name);
-  await dialog.getByRole("radio", { name: new RegExp(`^${toolset}\\b`) }).check();
+  await dialog.getByRole("combobox", { name: "Browser toolset" }).click();
+  await dialog.getByRole("option", { name: new RegExp(`^${toolset}\\b`) }).click();
   if (toolset === "Multilogin" && await page.getByText("Connect Multilogin").first().isVisible().catch(() => false)) {
     blocked("The Multilogin connector is not connected: it needs an API token from the Multilogin desktop app");
   }
   const connectionName = { none: /^No proxy/, managed: /^Managed proxy/, personal: /^Personal proxy/ }[connection];
-  const connectionRadio = dialog.getByRole("radio", { name: connectionName });
-  if (await connectionRadio.count()) await connectionRadio.check();
+  const connectionPicker = dialog.getByRole("combobox", { name: "Connection", exact: true });
+  if (await connectionPicker.count()) {
+    await connectionPicker.click();
+    await dialog.getByRole("option", { name: connectionName }).click();
+  } else if (toolset === "Multilogin" && connection === "personal") {
+    await dialog.getByRole("tab", { name: "Personal proxy", exact: true }).click();
+  }
   if (connection === "managed") await chooseCountry(page, dialog, country);
   if (connection === "personal") {
-    await dialog.getByRole("button", { name: "Personal proxy", exact: true }).click();
+    await dialog.getByRole("combobox", { name: /^Personal proxy/ }).click();
     await page.getByRole("option", { name: new RegExp(escape(personalProxy)) }).first().click();
   }
-  await dialog.getByRole("button", { name: "Create profile", exact: true }).click();
+  await dialog.locator('button[type="submit"]').click();
   await waitFor(async () => {
     if (!(await dialog.count())) return true;
     const error = dialog.locator('[class~="error"], [role="alert"]').first();
@@ -98,8 +105,8 @@ async function fillProfileDialog(page, dialog, { name, connection, country, tool
 }
 
 export async function chooseCountry(page, scope, country) {
-  await scope.getByRole("button", { name: "Proxy country" }).click();
-  await page.getByLabel("Search countries").fill(country);
+  await scope.getByLabel("Proxy country", { exact: true }).click();
+  await page.getByLabel(/^Search countries/).fill(country);
   const option = page.getByRole("option", { name: new RegExp(`\\b${escape(country)}\\b`, "i") }).first();
   await option.click();
 }

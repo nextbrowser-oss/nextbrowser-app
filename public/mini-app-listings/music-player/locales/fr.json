@@ -1,0 +1,13 @@
+{
+  "description": "Commandes de musique dans le panneau de chat.",
+  "useCases": [
+    "Lecture, pause et changement de titre sans quitter le chat.",
+    "Ajoutez plusieurs comptes musicaux et passez de l’un à l’autre."
+  ],
+  "requirements": "Connectez-vous sur le site du service musical. Les commandes fonctionnent tant que son lecteur est ouvert.",
+  "example": "Qu’est-ce qui passe ? Titre suivant.",
+  "screenshots": {
+    "player.png": "Lecteur avec un compte d’exemple",
+    "account.png": "Ajout d’un compte musical"
+  }
+}

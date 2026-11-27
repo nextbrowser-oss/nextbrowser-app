@@ -61,6 +61,19 @@ test("falls back to the Codex CLI when no desktop app binary exists", (t) => {
   }), cliBinary);
 });
 
+test("finds the Windows Codex installation instead of the sandbox copy", (t) => {
+  const root = fixture(t);
+  const localAppData = path.join(root, "LocalAppData");
+  const sandbox = path.join(root, ".codex", ".sandbox-bin");
+  executable(path.join(sandbox, "codex.exe"));
+  const installed = executable(path.join(localAppData, "OpenAI", "Codex", "bin", "build", "codex.exe"));
+  executable(path.join(path.dirname(installed), "codex-code-mode-host.exe"));
+
+  const options = { platform: "win32", homeDir: root, searchPaths: [sandbox] };
+  assert.equal(resolveBinary("codex", "CODEX_BIN", { ...options, env: { LOCALAPPDATA: localAppData } }), installed);
+  assert.equal(resolveBinary("codex", "CODEX_BIN", { ...options, env: {} }), null);
+});
+
 test("reports whether a binary can be launched", (t) => {
   const root = fixture(t);
   const binary = executable(path.join(root, "bin", "nbc"));

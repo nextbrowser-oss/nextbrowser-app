@@ -25,6 +25,12 @@ Choose **Sign in to Nextbrowser** in the desktop app, continue in your browser, 
 
 Keep credentials out of prompts, chat messages, skills, custom scripts, screenshots, logs, and repository files.
 
+Open **My account → Import browser data** to scan local Chrome, Edge, Brave and Chromium profiles. Choose a detected source or browse to another profile folder. Select the data you want to copy and click **Import selected data**. Each import creates a separate working profile and an encrypted archive on this computer. Website sign-ins stay with the original browser. **Open profile** launches the imported copy.
+
+The scanner checks categories already imported into this Nextbrowser account. Changed source files can be imported again. For older imports without a recorded source, the scanner checks for matching local data. If a database is in use, close the source browser and select **Scan again**.
+
+**Recovery files** shows the full paths to the encrypted archive (`.nbarchive`) and its key (`.nbkey`). Keep copies of both and store the key separately. Anyone with both files can decrypt the archive. They stay on your computer, and Nextbrowser support cannot recover a lost key. The browser reads the working profile locally in its usual format. To recover on another installation, select **My account → Import browser data → Restore from archive** and choose the archive and key.
+
 ### Profile
 
 A profile represents a browser identity and its associated state. Profiles let an operator separate browser contexts for different tasks, accounts, customers, regions, or test runs.
@@ -86,7 +92,7 @@ Preflight establishes a starting context. It does not guarantee that the page re
 
 ### Scheduled runs
 
-A scheduled run stores a prompt, selected agent, time, weekday selection, and enabled state. It runs locally while the Nextbrowser desktop app is open. Use schedules for recurring browser tasks that have clear authorization and a review path; they are not a service-level guarantee.
+A scheduled run stores a prompt, selected agent, time, weekday selection, and enabled state. Enabled schedules keep running locally in a background process after you close Nextbrowser. Keep the device awake and the account and agent signed in. Reopen Nextbrowser to see the results. Disable all schedules before closing the app to stop the background process.
 
 ### Live View and diagnostics
 

@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { shouldDismissModalWithEscape } from "../lib/modalKeyboard";
@@ -91,22 +92,25 @@ export function ProfileCreateRequestModal() {
         <div className="modal-title-row">
           <Icon name="person.2.fill" size={18} />
           <div>
-            <strong id="profile-create-request-title">
-              An agent wants to create {request.quantity} profile{request.quantity === 1 ? "" : "s"}
+            <strong id="profile-create-request-title">{request.quantity === 1
+              ? translate("An agent wants to create %1 profile", request.quantity)
+              : translate("An agent wants to create %1 profiles", request.quantity)}
             </strong>
             <div className="muted small">
               {namesPreview}
               {` · ${request.runtime === "camoufox" ? "Camoufox" : request.runtime === "dasbrowser" ? "DasBrowser" : "ClawBrowser"}`}
-              {request.personal_proxy_id ? ` · Personal proxy: ${selectedProxy?.name ?? request.personal_proxy_id}` : request.no_proxy ? " · No proxy (direct connection)" : request.country ? ` · ${request.country}` : ""}
+              {request.personal_proxy_id ? translate(" · Personal proxy: %1", selectedProxy?.name ?? request.personal_proxy_id) : request.no_proxy ? translate(" · No proxy (direct connection)") : request.country ? ` · ${request.country}` : ""}
               {request.proxy_scheme ? ` · ${request.proxy_scheme}` : ""}
             </div>
           </div>
         </div>
         <p className="traffic-gate-modal-copy">
-          {request.status === "approved" || request.status === "completed" ? "The profiles were created. Retry to finish adding them to this workspace." : "Nothing has been created yet. Approve to create these profiles now, or decline to tell the agent no."}
+          {request.status === "approved" || request.status === "completed" ? translate("The profiles were created. Retry to finish adding them to this workspace.") : translate("Nothing has been created yet. Approve to create these profiles now, or decline to tell the agent no.")}
         </p>
         {manualRequests.length > 1 && (
-          <div className="muted small">{manualRequests.length - 1} more request{manualRequests.length - 1 === 1 ? "" : "s"} waiting after this one.</div>
+          <div className="muted small">{manualRequests.length === 2
+            ? translate("%1 more request waiting after this one.", manualRequests.length - 1)
+            : translate("%1 more requests waiting after this one.", manualRequests.length - 1)}</div>
         )}
         {error && (
           <div className="traffic-gate-modal-effect">
@@ -117,11 +121,11 @@ export function ProfileCreateRequestModal() {
         <div className="modal-actions">
           {request.status === "pending" && <button className="btn-bordered" type="button" disabled={busy} autoFocus onClick={onDecline}>
             <Icon name="xmark" size={13} />
-            {busy && busyAction === "reject" ? "Declining…" : "Decline"}
+            {busy && busyAction === "reject" ? translate("Declining…") : translate("Decline")}
           </button>}
           <button className="primary" type="button" disabled={busy} onClick={onApprove}>
             <Icon name="checkmark" size={13} />
-          {busy && busyAction === "approve" ? "Finishing…" : request.status === "approved" || request.status === "completed" ? "Finish adding" : `Create ${request.quantity}`}
+          {busy && busyAction === "approve" ? translate("Finishing…") : request.status === "approved" || request.status === "completed" ? translate("Finish adding") : translate("Create %1", request.quantity)}
           </button>
         </div>
       </section>

@@ -1,0 +1,13 @@
+{
+  "description": "Video, immagini e post con l’IA di SwipeForge, pubblicati sui tuoi account social.",
+  "useCases": [
+    "Genera un video, un’immagine, un post o una voce fuori campo da un testo.",
+    "Segui il rendering e pubblica su TikTok, Instagram, YouTube o X."
+  ],
+  "requirements": "Accedi con il tuo account Nextbrowser. I limiti di generazione dipendono dal tuo livello SwipeForge. I post escono solo dopo la tua approvazione.",
+  "example": "Fai un video verticale di 5 secondi: una barchetta di carta in una strada al neon sotto la pioggia.",
+  "screenshots": {
+    "workspace.png": "Creazione di un video",
+    "connect.png": "Collegamento a SwipeForge"
+  }
+}

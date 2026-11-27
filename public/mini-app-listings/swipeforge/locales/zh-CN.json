@@ -1,0 +1,13 @@
+{
+  "description": "用 SwipeForge 生成 AI 视频、图片和帖子，并发布到你的社交账户。",
+  "useCases": [
+    "根据文字描述生成视频、图片、帖子或配音。",
+    "查看渲染进度，并发布到 TikTok、Instagram、YouTube 或 X。"
+  ],
+  "requirements": "使用 Nextbrowser 账户登录。生成额度取决于你的 SwipeForge 等级。帖子需经你批准后才会发布。",
+  "example": "做一个 5 秒竖屏视频：下雨的霓虹街道上漂着一只纸船。",
+  "screenshots": {
+    "workspace.png": "创建视频",
+    "connect.png": "连接 SwipeForge"
+  }
+}

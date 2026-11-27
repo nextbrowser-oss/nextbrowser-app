@@ -12,12 +12,12 @@ describe("Settings section rail", () => {
   const rail = (section: Parameters<typeof SettingsRail>[0]["section"], attention = {}) =>
     renderToStaticMarkup(<SettingsRail section={section} attention={attention} onSelect={() => undefined} />);
 
-  it("is a vertical tablist of the six sections", () => {
+  it("is a vertical tablist of the settings sections", () => {
     const html = rail("general");
     expect(html).toMatch(/^<div[^>]*role="tablist"[^>]*>/);
     expect(html).toContain('aria-orientation="vertical"');
     expect(html).toContain('aria-label="Settings sections"');
-    expect(Object.keys(tabs(html))).toEqual(["general", "updates", "privacy", "agent", "browser", "proxy"]);
+    expect(Object.keys(tabs(html))).toEqual(["general", "themes", "updates", "privacy", "devices", "agent", "browser", "proxy"]);
   });
 
   it("selects one tab and keeps only it in the Tab order", () => {
@@ -36,7 +36,7 @@ describe("Settings section rail", () => {
     const html = rail("general", { agent: "not connected" });
     const all = tabs(html);
     expect(all.agent).toContain('aria-label="Agent, not connected"');
-    expect(all.agent).toContain('title="Agent: not connected"');
+    expect(all.agent).toContain('data-tooltip-id=');
     expect(all.general).not.toContain("aria-label=");
     expect(html.match(/settings-rail-dot/g)).toHaveLength(1);
     expect(html).toContain('<span class="settings-rail-dot" aria-hidden="true"></span>');
@@ -68,12 +68,13 @@ describe("Settings sections hold every setting", () => {
   };
 
   it.each([
-    ["general", ["Nextbrowser</span>", "Versions and updates", "Interface size", "<UIScaleSlider"]],
+    ["general", ["Nextbrowser</span>", "<InterfaceLanguageSetting", "Versions and updates", "Interface size", "<UIScaleSlider"]],
+    ["themes", ["<ThemePicker", "<ThemeEditor"]],
     ["updates", ["<SettingsUpdates", "Restart and update", "<ManualReleaseDownload"]],
     ["privacy", ["Send error reports", "<DeviceDataSettings />"]],
-    ["agent", ["<AgentPicker", "Connect", "Login", "Log out", "<AgentInstallLink", "<BuiltinAgentSetup />"]],
-    ["browser", ["nextctl</span>", "Profiles</span>", "Browser toolsets and updates"]],
-    ["proxy", ["Proxy</span>", "Proxy usage", "setUsageOpen(true)", "<UsageView />"]],
+    ["agent", ["<AgentPicker", "Connect", "Login", "Log out", "<AgentInstallLink", "<BuiltinAgentSetup />", "<StockMcpPermissions"]],
+    ["browser", ['{translate("Profiles")}</span>', "Browser toolsets and updates", "setSection(\"updates\")"]],
+    ["proxy", ['{translate("Proxy")}</span>', "Proxy usage", "setUsageOpen(true)", "<UsageView />"]],
   ])("%s", (section, settings) => {
     const source = block(section as string);
     for (const setting of settings as string[]) expect(source).toContain(setting);

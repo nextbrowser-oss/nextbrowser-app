@@ -1,26 +1,31 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
-import { RemoteControlClient, type InputEnvelope, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
+import { translate } from "../shared/lib/i18n";
+import { Glyph, IconButton, Select } from "../shared/ui";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { RemoteControlClient, type InputEnvelope, type LiveBrowserAction, type RemoteLiveTab, type RemoteMediaStats, type RemoteStreamInfo } from "../remoteControl";
 import { useStore } from "../store";
 import { actionFailureMessage, internalError } from "../lib/userFacingError";
 import { nextLiveClick, type LiveClick } from "../lib/liveClickCount";
 import { invoke } from "../electronBridge";
+import { liveRuntimeLabel, type LiveSessionOption } from "../lib/liveSessions";
+import { showLiveStartPage } from "../lib/liveStartPage";
+import { liveWindowLayout } from "../lib/liveWindowLayout";
+import { setLiveWindowHole, type LiveWindowFrame } from "../lib/liveWindowHole";
 import {
-  MULTILOGIN_SELECTION_EVENT,
-  multiloginSelectionForWorkspace,
-  type MultiloginProfileSelection,
-} from "../lib/multiloginSelection";
-import type { LiveStreamTarget } from "../lib/liveStreamTarget";
-import {
-  clawbrowserTargetKey,
   createLiveStartTurns,
-  liveSwitchStartsStream,
-  liveTargetStreamsWithoutLaunch,
-  multiloginTargetKey,
 } from "../lib/liveProfileSwitch";
 import { Icon, Spinner } from "./Icon";
 import { UserFacingError } from "./UserFacingError";
+import { LiveControls } from "./LiveControls";
+import { LiveBrowserToolbar } from "./LiveBrowserToolbar";
+import "./liveView.css";
 
-type LiveState = "idle" | "connecting" | "live" | "error";
+type LiveState = "idle" | "needs-download" | "needs-native-restart" | "needs-permission" | "connecting" | "live" | "error";
+type LiveWindowSession = { id: string; attached: boolean };
+// macOS: the helper could not move the browser window without Accessibility.
+type LiveWindowPermission = { permission: "accessibility" };
+const nativeWindowPlatform = () => ["win32", "darwin"].includes(window.nextbrowser?.platform ?? "");
+const runtimeNames = { clawbrowser: "ClawBrowser", dasbrowser: "DasBrowser", camoufox: "Camoufox" };
 const LIVE_VIEW_BACKGROUND_TTL_MS = 10 * 60 * 1000;
 
 function modifierBits(event: MouseEvent | WheelEvent | KeyboardEvent) {
@@ -46,20 +51,28 @@ function shouldSendKeyEvent(event: KeyboardEvent) {
     event.altKey;
 }
 
-function mergeTabs(current: RemoteLiveTab[], incoming: RemoteLiveTab[]) {
-  if (!current.length || incoming.some((tab) => tab.active)) return incoming;
-  const next = new Map(current.map((tab) => [tab.target_id, tab]));
-  for (const tab of incoming) next.set(tab.target_id, { ...next.get(tab.target_id), ...tab });
-  return [...next.values()];
-}
-
 // Hover moves are sent at most this often while no button is pressed.
 const LIVE_HOVER_INTERVAL_MS = 50;
 
-export function LiveView({ active }: { active: boolean }) {
+export function LiveView({ active, requestedKey, profileOptions, controlsOpen, onControlsChange, controlsAccessory, onOverview }: {
+  active: boolean;
+  requestedKey: string;
+  profileOptions: LiveSessionOption[];
+  controlsOpen: boolean;
+  onControlsChange: (open: boolean) => void;
+  controlsAccessory?: ReactNode;
+  onOverview: () => void;
+}) {
   const s = useStore();
   const [sessionKey, setSessionKey] = useState<string>("");
   const [streamInfo, setStreamInfo] = useState<RemoteStreamInfo | null>(null);
+  const [liveWindow, setLiveWindow] = useState<LiveWindowSession | null>(null);
+  const liveWindowRef = useRef<LiveWindowSession | null>(null);
+  // macOS: whether the helper placed the browser, and its real frame.
+  const browserPlacement = useRef<{ visible: boolean; frame: LiveWindowFrame | null }>({ visible: false, frame: null });
+  const nativeStage = useRef<HTMLDivElement>(null);
+  const nativeLayoutActive = useRef(active);
+  nativeLayoutActive.current = active;
   const [state, setState] = useState<LiveState>("idle");
   const [error, setError] = useState("");
   // Made once: every Ref names one incident, so a render must not mint a new one.
@@ -67,18 +80,14 @@ export function LiveView({ active }: { active: boolean }) {
   const [inputWarning, setInputWarning] = useState("");
   const [remoteTabs, setRemoteTabs] = useState<RemoteLiveTab[]>([]);
   const [pendingRemoteTab, setPendingRemoteTab] = useState("");
+  const [browserControls, setBrowserControls] = useState(false);
+  const [browserAction, setBrowserAction] = useState<number>();
+  const browserActionRef = useRef<number>();
   const [mediaStats, setMediaStats] = useState<RemoteMediaStats>({});
   const [remoteMediaStream, setRemoteMediaStream] = useState<MediaStream | null>(null);
+  const [viewerWindow, setViewerWindow] = useState<Window | null>(null);
+  const viewerWindowRef = useRef<Window | null>(null);
   const activeWorkspaceID = s.activeWorkspaceId;
-  const workspace = s.workspaces.find((item) => item.id === activeWorkspaceID);
-  const workspaceProfiles = s.profiles.filter((profile) => workspace?.profileNames.includes(profile.name));
-  const [multiloginSelection, setMultiloginSelection] = useState<MultiloginProfileSelection | undefined>(
-    () => multiloginSelectionForWorkspace(activeWorkspaceID),
-  );
-  // The workspace's Multilogin profile is always offered, but it is only the
-  // automatic target while it is the active one (not after a regular profile
-  // was picked, started, or created).
-  const activeMultilogin = multiloginSelection?.active === false ? undefined : multiloginSelection;
   const remoteClientRef = useRef<RemoteControlClient | null>(null);
   const activeRemoteSessionRef = useRef<RemoteStreamInfo | null>(null);
   const remoteCloseRef = useRef<Promise<void>>(Promise.resolve());
@@ -88,39 +97,55 @@ export function LiveView({ active }: { active: boolean }) {
   const keyboardSinkRef = useRef<HTMLTextAreaElement | null>(null);
   const streamGeneration = useRef(0);
   const startTurnsRef = useRef(createLiveStartTurns());
+  const liveSelection = useRef<{ workspaceId?: string }>();
+  const autoStarted = useRef("");
+  const nativeRestart = useRef(false);
   const inactiveTimerRef = useRef<number | null>(null);
   const inputWarningTimerRef = useRef<number | null>(null);
   const pointerDragRef = useRef<{ pointerId: number; button: string; buttons: number; x: number; y: number; clickCount: number } | null>(null);
   const lastClickRef = useRef<LiveClick | undefined>(undefined);
   const lastHoverSentRef = useRef(0);
-  const runningProfiles = workspaceProfiles.filter((profile) => s.statuses[profile.name] === "running");
-  const displayNameCounts = new Map<string, number>();
-  for (const profile of workspaceProfiles) {
-    const displayName = profile.display_name || profile.name;
-    displayNameCounts.set(displayName, (displayNameCounts.get(displayName) || 0) + 1);
-  }
-  const profileOptions = [
-    ...(multiloginSelection ? [{
-      key: multiloginTargetKey(multiloginSelection),
-      label: `${multiloginSelection.name} · Multilogin ${multiloginSelection.kind === "mobile" ? "phone" : "browser"}`,
-      running: undefined,
-      target: { runtime: "multilogin", selection: multiloginSelection } as LiveStreamTarget,
-    }] : []),
-    ...workspaceProfiles.map((profile) => ({
-      key: clawbrowserTargetKey(profile.name),
-      label: displayNameCounts.get(profile.display_name || profile.name)! > 1
-        ? `${profile.display_name || profile.name} · ${workspace?.profileToolsets[profile.name] || "clawbrowser"} (${profile.name})`
-        : profile.display_name || profile.name,
-      running: s.statuses[profile.name] === "running",
-      target: { runtime: workspace?.profileToolsets[profile.name] ?? "clawbrowser", profile: profile.name } as LiveStreamTarget,
-    })),
-  ];
-  const launchTarget = sessionKey
-    || (activeMultilogin ? multiloginTargetKey(activeMultilogin) : "")
-    || (workspaceProfiles.some((profile) => profile.name === s.selectedProfile) ? clawbrowserTargetKey(s.selectedProfile) : "")
-    || (workspaceProfiles[0]?.name ? clawbrowserTargetKey(workspaceProfiles[0].name) : "");
+  const defaultStatus = s.defaultSession?.status;
+  const launchTarget = sessionKey || requestedKey;
+  const chosenOption = profileOptions.find(option => option.key === launchTarget);
+  const chosenTarget = chosenOption?.target;
+  const chosenStatus = chosenTarget && chosenTarget.runtime !== "multilogin"
+    ? chosenTarget.profile ? s.statuses[chosenTarget.profile] : defaultStatus
+    : undefined;
   const streamUrl = streamInfo?.viewer_url || streamInfo?.dashboard_url || "";
   const nativeViewer = !!streamInfo?.viewer_ws_url;
+  const mobileViewer = chosenTarget?.runtime === "multilogin" && chosenTarget.selection.kind === "mobile";
+
+  const closeViewerWindow = () => {
+    viewerWindowRef.current?.close();
+    viewerWindowRef.current = null;
+    setViewerWindow(null);
+  };
+
+  const openViewerWindow = () => {
+    if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
+      viewerWindowRef.current.focus();
+      return;
+    }
+    const viewer = window.open("about:blank", "nextbrowser-live-viewer", "popup,width=1100,height=720");
+    if (!viewer) {
+      setInputWarning("The Live window could not be opened. Try again.");
+      return;
+    }
+    viewer.document.title = "Nextbrowser Live";
+    viewer.document.documentElement.dataset.theme = document.documentElement.dataset.theme;
+    for (const stylesheet of document.querySelectorAll("link[rel='stylesheet'], style")) {
+      viewer.document.head.appendChild(stylesheet.cloneNode(true));
+    }
+    viewer.document.body.className = "live-detached-body";
+    viewerWindowRef.current = viewer;
+    setViewerWindow(viewer);
+    viewer.addEventListener("pagehide", () => {
+      if (viewerWindowRef.current !== viewer) return;
+      viewerWindowRef.current = null;
+      setViewerWindow(null);
+    }, { once: true });
+  };
 
   const closeRemoteSession = async (id: string) => {
     const result = await invoke<{ code: number }>("nextctl_run", {
@@ -141,8 +166,23 @@ export function LiveView({ active }: { active: boolean }) {
     void remoteCloseRef.current.catch(() => undefined);
   };
 
+  const releaseLiveWindow = () => {
+    const session = liveWindowRef.current;
+    liveWindowRef.current = null;
+    if (session) void invoke("live_window", { operation: "release", id: session.id }).catch(() => undefined);
+  };
+
+  const updateLiveWindow = (session: LiveWindowSession | null) => {
+    if (session?.id !== liveWindowRef.current?.id) browserPlacement.current = { visible: false, frame: null };
+    liveWindowRef.current = session;
+    setLiveWindow(session);
+  };
+
   const stop = () => {
     streamGeneration.current += 1;
+    releaseLiveWindow();
+    setLiveWindow(null);
+    closeViewerWindow();
     releaseRemoteSession(activeRemoteSessionRef.current);
     activeRemoteSessionRef.current = null;
     if (inactiveTimerRef.current !== null) {
@@ -157,6 +197,9 @@ export function LiveView({ active }: { active: boolean }) {
     setState("idle");
     setRemoteTabs([]);
     setPendingRemoteTab("");
+    setBrowserControls(false);
+    browserActionRef.current = undefined;
+    setBrowserAction(undefined);
     setMediaStats({});
     setInputWarning("");
     pointerDragRef.current = null;
@@ -195,12 +238,49 @@ export function LiveView({ active }: { active: boolean }) {
         setRemoteMediaStream(stream);
         setState("live");
       },
-      onTabs: (tabs) => {
+      onTabs: (tabs, removed) => {
         if (!current()) return;
-        setRemoteTabs((current) => mergeTabs(current, tabs));
+        setRemoteTabs(previous => {
+          if (!removed) {
+            const incoming = new Map(tabs.map(tab => [tab.target_id, tab]));
+            const ordered: RemoteLiveTab[] = [];
+            for (const tab of previous) {
+              const update = incoming.get(tab.target_id);
+              if (update) ordered.push(update);
+              incoming.delete(tab.target_id);
+            }
+            return [...ordered, ...incoming.values()];
+          }
+          const selected = tabs.find(tab => tab.active);
+          const next = new Map(previous.filter(tab => !removed.includes(tab.target_id)).map(tab => [
+            tab.target_id, selected ? { ...tab, active: tab.target_id === selected.target_id } : tab,
+          ]));
+          for (const tab of tabs) next.set(tab.target_id, { ...next.get(tab.target_id), ...tab });
+          return [...next.values()];
+        });
         setPendingRemoteTab((pending) =>
           pending && tabs.some((tab) => tab.active && tab.target_id === pending) ? "" : pending,
         );
+      },
+      onBrowserControls: available => {
+        if (!current()) return;
+        setBrowserControls(available);
+        if (!available) {
+          browserActionRef.current = undefined;
+          setBrowserAction(undefined);
+          setPendingRemoteTab("");
+        }
+      },
+      onBrowserResult: (seq, message) => {
+        if (!current() || browserActionRef.current !== seq) return;
+        browserActionRef.current = undefined;
+        setBrowserAction(undefined);
+        setInputWarning(message ?? "");
+      },
+      onTabError: message => {
+        if (!current()) return;
+        setPendingRemoteTab("");
+        setInputWarning(message);
       },
       onTabSelected: (targetID) => {
         if (!current()) return;
@@ -224,16 +304,18 @@ export function LiveView({ active }: { active: boolean }) {
 
   useEffect(() => {
     const target = profileOptions.find((option) => option.key === sessionKey)?.target;
-    if (streamInfo && target && target.runtime !== "multilogin" && target.profile &&
-        ["stopping", "stopped"].includes(s.statuses[target.profile])) stop();
+    if ((streamInfo || liveWindow) && target && target.runtime !== "multilogin") {
+      const status = target.profile ? s.statuses[target.profile] : defaultStatus;
+      if (status === "stopping" || status === "stopped") stop();
+    }
     // A deliberate profile stop also ends its viewer, without a connection error.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.statuses, sessionKey, streamInfo]);
+  }, [s.statuses, defaultStatus, sessionKey, streamInfo, liveWindow]);
 
-  const start = async (requestedKey = sessionKey, replacing = false) => {
-    if (state === "connecting" && !replacing) return;
+  const start = async (requestedKey: string, native: boolean, alreadyRunning: boolean) => {
     const generation = ++streamGeneration.current;
     const workspaceId = activeWorkspaceID;
+    const current = () => generation === streamGeneration.current && useStore.getState().activeWorkspaceId === workspaceId;
     const turn = startTurnsRef.current();
     setError("");
     setRemoteTabs([]);
@@ -248,6 +330,42 @@ export function LiveView({ active }: { active: boolean }) {
       if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) return;
       const target = profileOptions.find((option) => option.key === requestedKey)?.target;
       if (!target) throw new Error("Select a profile in this workspace first.");
+      if (native && target.runtime !== "multilogin" && liveWindowRef.current) {
+        // Attached while the profile was starting.
+        setState("live");
+        await showLiveStartPage(target, current, workspaceId).catch(error => console.warn("[live-start-page]", error));
+        return;
+      }
+      if (native && target.runtime !== "multilogin") {
+        const result = await invoke<LiveWindowSession | LiveWindowPermission | null>("live_window", {
+          operation: "start", profile: target.profile, runtime: target.runtime,
+          layout: liveWindowLayout(nativeStage.current, nativeLayoutActive.current),
+        }).catch(() => null);
+        const session = result && "id" in result ? result : null;
+        if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) {
+          if (session) void invoke("live_window", { operation: "release", id: session.id }).catch(() => undefined);
+          return;
+        }
+        if (result && "permission" in result) {
+          setState("needs-permission");
+          return;
+        }
+        if (session) {
+          updateLiveWindow(session);
+          setState("live");
+          await showLiveStartPage(target, current, workspaceId).catch(error => console.warn("[live-start-page]", error));
+          return;
+        }
+        if (alreadyRunning) {
+          setState("needs-native-restart");
+          return;
+        }
+        throw new Error("Nextbrowser could not attach the local browser window.");
+      }
+      if (target.runtime !== "multilogin") {
+        await showLiveStartPage(target, current, workspaceId).catch(error => console.warn("[live-start-page]", error));
+        if (!current()) return;
+      }
       const info = await s.startRemoteStream(target);
       if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== workspaceId) {
         releaseRemoteSession(info);
@@ -272,48 +390,129 @@ export function LiveView({ active }: { active: boolean }) {
   };
 
   const switchProfile = (key: string) => {
-    const streaming = !!streamInfo || state === "connecting" || state === "live";
-    stop();
-    setSessionKey(key);
-    // stop() made any start in flight stale, so this one replaces it.
-    if (liveSwitchStartsStream(streaming, key, s.statuses)) void start(key, true);
+    if (key !== requestedKey) s.openLiveSession(key);
   };
 
-  const launchAndStream = async () => {
-    if (state === "connecting") return;
+  const attachWhileStarting = (target: LiveSessionOption["target"], generation: number) => {
+    let stopped = false;
+    const current = () => !stopped && generation === streamGeneration.current && !liveWindowRef.current;
+    const done = (async () => {
+      while (current()) {
+        await new Promise(resolve => window.setTimeout(resolve, 700));
+        if (!current() || target.runtime === "multilogin") return;
+        const result = await invoke<LiveWindowSession | LiveWindowPermission | null>("live_window", {
+          operation: "start", profile: target.profile, runtime: target.runtime,
+          layout: liveWindowLayout(nativeStage.current, nativeLayoutActive.current),
+        }).catch(() => null);
+        if (result && "id" in result) {
+          if (generation === streamGeneration.current) updateLiveWindow(result);
+          else void invoke("live_window", { operation: "release", id: result.id }).catch(() => undefined);
+          return;
+        }
+        if (result && "permission" in result) return;
+      }
+    })();
+    return { stop: () => { stopped = true; return done; } };
+  };
+
+  const launchAndStream = async (key = launchTarget, downloadConfirmed = false, restart = false) => {
     // A profile switch or Stop while the profile launches takes precedence.
     const generation = streamGeneration.current;
     setError("");
     setState("connecting");
     try {
-      const option = profileOptions.find((candidate) => candidate.key === launchTarget);
-      if (option?.target.runtime === "multilogin") {
-        setSessionKey(launchTarget);
-        await start(launchTarget);
-      } else if (option) {
-        setSessionKey(launchTarget);
-        const profile = option.target.profile;
-        if (profile && s.statuses[profile] !== "running") await s.startProfile(profile);
-        if (!profile) throw new Error("Select a profile in this workspace first.");
-        await s.refreshSessions();
-        if (generation !== streamGeneration.current) return;
-        await start(launchTarget);
-      } else {
-        throw new Error("Select a profile in this workspace first.");
+      const option = profileOptions.find(candidate => candidate.key === key);
+      if (!option) throw new Error("Select a profile in this workspace first.");
+      const native = option.target.runtime !== "multilogin" && nativeWindowPlatform();
+      if (native && !(await invoke<boolean>("live_window_available", { runtime: option.target.runtime }))) {
+        throw new Error("The Live window helper is unavailable.");
       }
+      if (native && window.nextbrowser?.platform === "darwin" &&
+          !(await invoke<{ trusted: boolean }>("live_window_permission")).trusted) {
+        if (generation === streamGeneration.current) setState("needs-permission");
+        return;
+      }
+      if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== activeWorkspaceID) return;
+      if (option.target.runtime !== "multilogin" && (!option.running || restart)) {
+        const { runtime, profile } = option.target;
+        const available = await invoke<boolean>("browser_runtime_available", { runtime });
+        if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== activeWorkspaceID) return;
+        if (useStore.getState().tab !== "live") {
+          setState("idle");
+          return;
+        }
+        if (!available && !downloadConfirmed) {
+          setState("needs-download");
+          return;
+        }
+        // macOS: put the browser window into the panel as soon as it exists,
+        // so its start and verification already happen inside Nextbrowser.
+        const early = native && window.nextbrowser?.platform === "darwin" ? attachWhileStarting(option.target, generation) : null;
+        try {
+          if (profile) await s.startProfile(profile, { forLive: true, liveWindow: native });
+          else await s.startDefaultSession({ forLive: true, liveWindow: native });
+        } finally {
+          await early?.stop();
+        }
+      }
+      if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== activeWorkspaceID) return;
+      await start(key, native, Boolean(option.running) && !restart);
     } catch (error) {
       if (generation !== streamGeneration.current) return;
       setState("error");
-      setError(actionFailureMessage("We couldn't launch the remote session.", "REMOTE_SESSION_LAUNCH_FAILED", error));
+      setError(actionFailureMessage("We couldn't launch the browser session.", "REMOTE_SESSION_LAUNCH_FAILED", error));
+    }
+  };
+
+  const restartInNativeWindow = async () => {
+    if (!chosenTarget || chosenTarget.runtime === "multilogin" || nativeRestart.current) return;
+    nativeRestart.current = true;
+    stop();
+    setState("connecting");
+    const generation = streamGeneration.current;
+    try {
+      await remoteCloseRef.current;
+      if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== activeWorkspaceID) return;
+      if (chosenTarget.profile) await s.stopProfile(chosenTarget.profile);
+      else await s.stopDefaultSession();
+      if (generation !== streamGeneration.current || useStore.getState().activeWorkspaceId !== activeWorkspaceID) return;
+      await launchAndStream(launchTarget, false, true);
+    } catch (error) {
+      if (generation !== streamGeneration.current) return;
+      setError(actionFailureMessage("We couldn't restart the browser in a native window.", "LIVE_WINDOW_RESTART_FAILED", error));
+      setState("error");
+    } finally {
+      nativeRestart.current = false;
     }
   };
 
   const selectRemoteTab = (targetID: string) => {
-    if (!targetID) return;
+    if (!remoteClientRef.current || remoteTabs.some(tab => tab.active && tab.target_id === targetID)) return;
+    setInputWarning("");
     setPendingRemoteTab(targetID);
-    if (!remoteClientRef.current) return;
     remoteClientRef.current.selectTab(targetID);
   };
+
+  const runBrowserAction = (action: LiveBrowserAction, targetID?: string, url?: string) => {
+    if (browserActionRef.current !== undefined || pendingRemoteTab || !browserControls) return false;
+    const seq = remoteClientRef.current?.runBrowserAction(action, targetID, url);
+    if (seq === undefined) return false;
+    setInputWarning("");
+    browserActionRef.current = seq;
+    setBrowserAction(seq);
+    return true;
+  };
+
+  useEffect(() => {
+    if (browserAction === undefined && !pendingRemoteTab) return;
+    const timeout = window.setTimeout(() => {
+      browserActionRef.current = undefined;
+      setBrowserAction(undefined);
+      setPendingRemoteTab("");
+      setInputWarning("The browser did not respond in time.");
+    }, 10_000);
+    return () => window.clearTimeout(timeout);
+  }, [browserAction, pendingRemoteTab]);
 
   const pointForEvent = (event: MouseEvent | WheelEvent) => {
     const embed = remoteEmbedRef.current;
@@ -338,34 +537,117 @@ export function LiveView({ active }: { active: boolean }) {
   };
 
   useEffect(() => {
-    const refreshSelection = () => setMultiloginSelection(multiloginSelectionForWorkspace(activeWorkspaceID));
-    refreshSelection();
-    window.addEventListener(MULTILOGIN_SELECTION_EVENT, refreshSelection);
-    return () => window.removeEventListener(MULTILOGIN_SELECTION_EVENT, refreshSelection);
-  }, [activeWorkspaceID]);
+    if (!active) {
+      autoStarted.current = "";
+      onControlsChange(false);
+      return;
+    }
+    const previous = liveSelection.current;
+    const key = requestedKey;
+    if (sessionKey !== key || previous?.workspaceId !== activeWorkspaceID) {
+      liveSelection.current = { workspaceId: activeWorkspaceID };
+      stop();
+      setSessionKey(key);
+      autoStarted.current = "";
+      return;
+    }
+    if (!chosenOption || streamInfo || liveWindow || state !== "idle" || autoStarted.current === key ||
+        ["starting", "stopping", "rotating"].includes(chosenStatus || "")) return;
+    autoStarted.current = key;
+    void launchAndStream(key);
+    // The stream actions use the current render; rerun only when its target or readiness changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, activeWorkspaceID, requestedKey, sessionKey, chosenOption?.key, chosenStatus, state, streamInfo, liveWindow, onControlsChange]);
+
+  const changeLiveWindow = async (operation: "detach" | "embed") => {
+    const session = liveWindowRef.current;
+    if (!session) return;
+    try {
+      const next = await invoke<LiveWindowSession | null>("live_window", {
+        operation, id: session.id, layout: liveWindowLayout(nativeStage.current, active),
+      });
+      if (liveWindowRef.current !== session) return;
+      if (!next) stop();
+      else {
+        updateLiveWindow(next);
+        setInputWarning("");
+      }
+    } catch {
+      if (liveWindowRef.current === session) setInputWarning("Couldn't move the browser window. Try again.");
+    }
+  };
 
   useEffect(() => {
-    if (!active) return;
-    const runningProfile = runningProfiles[0]?.name;
-    const current =
-      (activeMultilogin ? multiloginTargetKey(activeMultilogin) : "") ||
-      (workspaceProfiles.some((profile) => profile.name === s.selectedProfile) ? clawbrowserTargetKey(s.selectedProfile) : "") ||
-      (runningProfile ? clawbrowserTargetKey(runningProfile) : "") ||
-      "";
-    const targetChanged = current !== sessionKey;
-    if (targetChanged && (remoteClientRef.current || streamInfo || state === "connecting")) stop();
-    setSessionKey(current);
-    if (
-      !remoteClientRef.current &&
-      state !== "connecting" &&
-      (!streamInfo || targetChanged) &&
-      liveTargetStreamsWithoutLaunch(current, s.statuses)
-    ) {
-      void start(current);
-    }
-    // The component stays mounted while another app tab is active.
+    if (!liveWindow) return;
+    let disposed = false;
+    let frame = 0;
+    let pending = false;
+    let dirty = false;
+    let lastLayout = "";
+    const sync = async (checkStatus = false) => {
+      if (disposed) return;
+      if (pending) { dirty = true; return; }
+      const layout = liveWindowLayout(nativeStage.current, active);
+      if (window.nextbrowser?.platform === "darwin") {
+        const { visible, frame } = browserPlacement.current;
+        setLiveWindowHole(liveWindow.attached && visible ? layout : null, frame);
+      }
+      const serialized = JSON.stringify(layout);
+      const changed = liveWindow.attached && serialized !== lastLayout;
+      if (!changed && !checkStatus) return;
+      lastLayout = serialized;
+      pending = true;
+      try {
+        const result = await invoke<LiveWindowSession | null>("live_window", {
+          operation: changed ? "layout" : "status", id: liveWindow.id, layout,
+        });
+        if (!disposed && liveWindowRef.current === liveWindow && !result) stop();
+      } catch {
+        if (!disposed && liveWindowRef.current === liveWindow) {
+          stop();
+          setError(internalError("We couldn't display the native browser window.", "LIVE_WINDOW_LAYOUT_FAILED"));
+          setState("error");
+        }
+      } finally {
+        pending = false;
+        if (dirty) { dirty = false; schedule(); }
+      }
+    };
+    const schedule = () => {
+      if (!disposed && !frame) frame = requestAnimationFrame(() => { frame = 0; void sync(); });
+    };
+    // macOS: the part of the panel the browser window really covers.
+    // Only once it is placed: before that the panel would show the desktop.
+    // The helper reports changes only, so the state outlives this effect.
+    const stopFrame = window.nextbrowser?.on?.("live-window:frame", frame => {
+      browserPlacement.current.frame = frame as LiveWindowFrame | null;
+      void sync(true);
+    });
+    const stopVisible = window.nextbrowser?.on?.("live-window:visible", visible => {
+      browserPlacement.current.visible = visible === true;
+      void sync(true);
+    });
+    const resize = new ResizeObserver(schedule);
+    if (nativeStage.current) resize.observe(nativeStage.current);
+    const mutation = new MutationObserver(schedule);
+    mutation.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "style", "hidden", "aria-modal"] });
+    window.addEventListener("resize", schedule);
+    void sync(true);
+    const timer = window.setInterval(() => void sync(true), 1000);
+    return () => {
+      disposed = true;
+      stopFrame?.();
+      stopVisible?.();
+      setLiveWindowHole(null);
+      if (frame) cancelAnimationFrame(frame);
+      clearInterval(timer);
+      resize.disconnect();
+      mutation.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
+    // Native bounds follow DOM layout and the window owned by this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, multiloginSelection, activeWorkspaceID, s.selectedProfile]);
+  }, [active, liveWindow]);
 
   useEffect(() => {
     if (active) {
@@ -386,11 +668,14 @@ export function LiveView({ active }: { active: boolean }) {
         inactiveTimerRef.current = null;
       }
     };
-    // Only transitions between app tabs should reset the grace period.
+    // Only transitions out of a focused viewer should reset the grace period.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   useEffect(() => () => {
+    releaseLiveWindow();
+    streamGeneration.current += 1;
+    viewerWindowRef.current?.close();
     if (inactiveTimerRef.current !== null) window.clearTimeout(inactiveTimerRef.current);
     if (inputWarningTimerRef.current !== null) window.clearTimeout(inputWarningTimerRef.current);
     remoteClientRef.current?.close();
@@ -403,7 +688,7 @@ export function LiveView({ active }: { active: boolean }) {
     if (!video || !remoteMediaStream) return;
     video.srcObject = remoteMediaStream;
     void video.play().catch(() => undefined);
-  }, [remoteMediaStream, state]);
+  }, [remoteMediaStream, state, viewerWindow]);
 
   const releasePointer = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = pointerDragRef.current;
@@ -477,14 +762,24 @@ export function LiveView({ active }: { active: boolean }) {
     releasePointer(event);
   };
 
-  const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    const point = pointForEvent(event.nativeEvent);
-    sendLiveInput({
-      type: "wheel",
-      payload: { x: point.x, y: point.y, deltaX: event.deltaX, deltaY: event.deltaY, modifiers: modifierBits(event.nativeEvent) },
-    });
-    event.preventDefault();
-  };
+  useEffect(() => {
+    const embed = remoteEmbedRef.current;
+    if (!embed) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const pixelsPerUnit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? embed.clientHeight : 1;
+      remoteClientRef.current?.scroll({
+        ...pointForEvent(event),
+        deltaX: event.deltaX * pixelsPerUnit,
+        deltaY: event.deltaY * pixelsPerUnit,
+        modifiers: modifierBits(event),
+      });
+    };
+    embed.addEventListener("wheel", onWheel, { passive: false });
+    return () => embed.removeEventListener("wheel", onWheel);
+    // Input coordinates depend on the latest remote viewport and rendered video.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nativeViewer, state, viewerWindow, mediaStats]);
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.target === keyboardSinkRef.current && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v") {
@@ -542,78 +837,53 @@ export function LiveView({ active }: { active: boolean }) {
     event.preventDefault();
   };
 
-  return (
-    <div className="live">
-      <div className="live-controls">
-        <Icon name="video.fill" size={18} className="accent-icon" />
-        <select
-          className="live-session-select"
-          value={sessionKey}
-          title="Choose profile to stream"
-          onChange={(e) => switchProfile(e.target.value)}
-        >
-          <option value="">Select profile</option>
-          {profileOptions.map((p) => (
-            <option key={p.key} value={p.key}>
-              {p.running === false ? `${p.label} (stopped)` : p.label}
-            </option>
-          ))}
-        </select>
-        <span className={"live-pill " + state}>
-          {state === "live" ? "live" : state}
-        </span>
-        <span className="muted small">
-          {streamInfo && !nativeViewer
-            ? "Dashboard Remote Control viewer is embedded for this stream."
-            : "Native Remote Control viewer is used when supported."}
-        </span>
-        <span className="spacer" />
-        {streamUrl && (
-          <a className="btn-bordered" href={streamUrl} target="_blank" rel="noreferrer" title="Open Remote Control in your browser">
-            <Icon name="arrow.up.forward.app" size={14} />
-            Open link
-          </a>
-        )}
-        {state === "live" && (
-          <button className="btn-bordered live-stop-btn" onClick={stop}>
-            <Icon name="stop.fill" size={14} className="error" />
-            Stop
-          </button>
-        )}
-      </div>
-      <hr className="divider" />
-
-      {remoteTabs.length > 0 && (
-        <div className="remote-tabs-bar" aria-label="Remote browser tabs">
-          {remoteTabs.map((tab) => {
-            const active = tab.active || tab.target_id === pendingRemoteTab;
-            const title = tab.title || tab.url || "Untitled";
-            return (
-              <button
-                key={tab.target_id}
-                className={"remote-tab-chip" + (active ? " active" : "")}
-                onClick={() => selectRemoteTab(tab.target_id)}
-                disabled={active || !!pendingRemoteTab}
-                title={tab.url || title}
-              >
-                <span className="remote-tab-title">{title}</span>
-                {tab.loading && <span className="remote-tab-dot" />}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="live-stage remote-live-stage">
-        {state === "connecting" && (
+  const stage = <>
+    {nativeViewer && !mobileViewer && state !== "error" && <LiveBrowserToolbar key={streamInfo?.id}
+      tabs={remoteTabs} currentURL={streamInfo?.target?.url || ""} canNavigate={browserControls}
+      busy={browserAction !== undefined || !!pendingRemoteTab}
+      onSelect={selectRemoteTab} onAction={runBrowserAction} />}
+    <div ref={nativeStage} className="live-stage remote-live-stage">
+        {liveWindow && !liveWindow.attached && <div className="live-empty-panel">
+          <strong>{translate("The browser is in a separate window")}</strong>
+          <button className="btn-bordered-prominent" onClick={() => void changeLiveWindow("embed")}>{translate("Return to Nextbrowser")}</button>
+        </div>}
+        {state === "needs-download" && chosenTarget && chosenTarget.runtime !== "multilogin" && (
           <div className="live-empty-panel">
+            <Icon name="arrow.down.circle.fill" size={32} className="muted" />
+            <strong>{translate("Download")} {runtimeNames[chosenTarget.runtime]} {translate("to use Processes")}</strong>
+            <p className="muted">{translate("The selected profile needs this browser.")}</p>
+            <button className="primary live-stream-btn" onClick={() => void launchAndStream(launchTarget, true)}>{translate("Download & start")}</button>
+          </div>
+        )}
+        {state === "needs-permission" && (
+          <div className="live-empty-panel">
+            <Icon name="lock.fill" size={32} className="muted" />
+            <strong>{translate("Allow Nextbrowser to place the browser window")}</strong>
+            <p className="muted">{translate("macOS asks for Accessibility access before Nextbrowser can keep the browser inside Processes. Turn on Nextbrowser in Privacy & Security → Accessibility, then try again.")}</p>
+            <div className="live-controls-actions">
+              <button className="btn-bordered" onClick={() => void invoke("live_window_permission", { request: true })}>
+                {translate("Open Accessibility settings")}
+              </button>
+              <button className="primary live-stream-btn" onClick={() => void launchAndStream()}>{translate("Try again")}</button>
+            </div>
+          </div>
+        )}
+        {state === "needs-native-restart" && (
+          <div className="live-empty-panel">
+            <strong>{translate("Processes needs a browser window")}</strong>
+            <p className="muted">{translate("Restart this profile to open its window inside Nextbrowser.")}</p>
+            <button className="primary live-stream-btn" onClick={() => void restartInNativeWindow()}>{translate("Restart in Processes")}</button>
+          </div>
+        )}
+        {state === "connecting" && !streamInfo && (
+          <div className="live-empty-panel" role="status">
             <Spinner size={18} />
-            <strong>Starting live view...</strong>
-            <p className="muted small">Connecting to the selected browser profile.</p>
+            <strong>{translate("Starting live view...")}</strong>
+            <p className="muted small">{translate("Connecting to the selected browser profile.")}</p>
           </div>
         )}
         {state === "error" && (
-          <div className="live-error">
+          <div className="live-error live-empty-panel">
             <Icon name="exclamationmark.triangle.fill" size={32} className="warn" />
             <p>
               <UserFacingError
@@ -621,30 +891,22 @@ export function LiveView({ active }: { active: boolean }) {
                 surface="live_view"
               />
             </p>
-            <button className="primary live-stream-btn" disabled={!launchTarget} onClick={() => launchAndStream()}>
-              <Icon name="play.fill" size={12} />
-              Launch to stream
-            </button>
+            <button className="primary live-stream-btn" disabled={!launchTarget} onClick={() => { stop(); void launchAndStream(); }}>
+              <Icon name="play.fill" size={12} />{translate("Retry connection")}</button>
           </div>
         )}
         {state === "idle" && !streamInfo && (
           <div className="live-empty-panel">
             <Icon name="video.fill" size={34} className="muted" />
-            <strong>{runningProfiles.length || multiloginSelection ? "Stream is off" : "No active profiles"}</strong>
+            <strong>{launchTarget ? translate("Browser view is off") : translate("No browser profile selected")}</strong>
             <p className="muted">
-              {runningProfiles.length || multiloginSelection
-                ? "Start Remote Control for the selected running profile."
-                : "Launch a profile and open Remote Control."}
+              {launchTarget ? translate("Resume the browser in Processes.") : translate("Open process controls to manage profiles in this workspace.")}
             </p>
-            <button
+            {launchTarget && <button
               className="btn-bordered-prominent live-stream-btn"
-              disabled={!launchTarget}
-              onClick={() => launchAndStream()}
-              title={runningProfiles.length || multiloginSelection ? "Start live view" : "Launch selected profile and open live view"}
+              onClick={() => void launchAndStream()}
             >
-              <Icon name="play.fill" size={12} />
-              {runningProfiles.length || multiloginSelection ? "Stream" : "Launch to stream"}
-            </button>
+              <Icon name="play.fill" size={12} />{translate("Resume browser")}</button>}
           </div>
         )}
         {streamInfo && state !== "error" && nativeViewer && (
@@ -658,7 +920,6 @@ export function LiveView({ active }: { active: boolean }) {
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onDragStart={(event) => event.preventDefault()}
-            onWheel={handleWheel}
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
           >
@@ -666,11 +927,11 @@ export function LiveView({ active }: { active: boolean }) {
             <textarea
               ref={keyboardSinkRef}
               className="remote-live-keyboard-sink"
-              aria-label="Type in remote browser"
+              aria-label={translate("Type in remote browser")}
               autoCapitalize="off"
               autoComplete="off"
               spellCheck={false}
-              onInput={(event) => { if (!(event.nativeEvent instanceof InputEvent) || !event.nativeEvent.isComposing) flushKeyboardText(); }}
+              onInput={(event) => { if (!(event.nativeEvent as InputEvent).isComposing) flushKeyboardText(); }}
               onCompositionEnd={flushKeyboardText}
             />
           </div>
@@ -682,13 +943,50 @@ export function LiveView({ active }: { active: boolean }) {
           />
         )}
       </div>
-      {state === "live" && (
-        <div className="live-hint muted small">
-          {inputWarning || (nativeViewer
-            ? "Remote Control is running natively in Nextbrowser. Click, scroll, type, or use the tab bar above."
-            : "Remote Control is embedded in Nextbrowser through the backend dashboard viewer.")}
+  </>;
+
+  const canDetach = (!!streamInfo || !!liveWindow) && state === "live";
+  return (
+    <div className="live" data-native-window={liveWindow?.attached || undefined}>
+      {viewerWindow ? <>
+        <div className="live-stage remote-live-stage">
+          <div className="live-empty-panel">
+            <strong>{translate("The browser is in a separate window")}</strong>
+            <button className="btn-bordered-prominent" onClick={closeViewerWindow}>{translate("Return to Nextbrowser")}</button>
+          </div>
         </div>
-      )}
+        {createPortal(<div className="live live-detached">
+          {stage}
+          <IconButton label={translate("Return to Nextbrowser")} text={translate("Return to Nextbrowser")} hint="" className="live-return-button" onClick={closeViewerWindow}>
+            <Icon name="xmark" size={16} />
+          </IconButton>
+          {inputWarning && <div className="live-input-warning" role="status">{inputWarning}</div>}
+        </div>, viewerWindow.document.body)}
+      </> : <>
+        {stage}
+        {inputWarning && <div className="live-input-warning" role="status">{inputWarning}</div>}
+      </>}
+      {active && <LiveControls open={controlsOpen} onOpenChange={onControlsChange}>
+        {controlsAccessory}
+        <IconButton appearance="plain" label={translate("All Processes")} text={translate("Processes")} onClick={onOverview}><Glyph name="activity" size={14} /></IconButton>
+        <div className="live-controls">
+          <Select label={translate("Browser profile")} value={launchTarget} onChange={switchProfile}
+            options={profileOptions.map(profile => ({
+              value: profile.key,
+              label: profile.target.runtime === "multilogin" ? `${profile.label} · ${liveRuntimeLabel(profile.target)}` : profile.label,
+            }))} />
+          <span className={`live-pill live-status-${state}`}>{state === "needs-download" ? translate("Download required") : state === "needs-permission" ? translate("Permission required") : state === "idle" ? translate("Off") : state}</span>
+        </div>
+        {(canDetach || state === "connecting") && <div className="live-controls-actions">
+          {canDetach && <button className="btn-bordered" type="button" onClick={liveWindow
+            ? () => void changeLiveWindow(liveWindow.attached ? "detach" : "embed")
+            : viewerWindow ? closeViewerWindow : openViewerWindow}>
+            <Icon name="arrow.up.forward.app" size={14} /> {viewerWindow || liveWindow?.attached === false ? translate("Return to Nextbrowser") : translate("Open in separate window")}
+          </button>}
+          {(state === "live" || state === "connecting") && <button type="button" className="btn-bordered" onClick={stop}>
+            <Icon name="stop.fill" size={14} /> {translate("Stop")}</button>}
+        </div>}
+      </LiveControls>}
     </div>
   );
 }

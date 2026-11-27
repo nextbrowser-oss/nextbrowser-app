@@ -1,0 +1,13 @@
+{
+  "description": "Tablica zadań z kolumnami To do, In progress i Done.",
+  "useCases": [
+    "Prowadź zadania w trzech kolumnach i przesuwaj je w miarę postępów.",
+    "Agent może dodawać zadania, edytować notatki i przesuwać karty."
+  ],
+  "requirements": "Zadania są zapisywane lokalnie na Twoim koncie Nextbrowser. Nie trzeba się nigdzie logować.",
+  "example": "Przenieś listę kontrolną wydania do In progress.",
+  "screenshots": {
+    "board.png": "Tablica z przykładowymi zadaniami",
+    "editor.png": "Edytor zadania"
+  }
+}

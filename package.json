@@ -1,14 +1,16 @@
 {
   "name": "nextbrowser",
-  "version": "0.2.59",
+  "version": "0.2.83",
   "description": "Nextbrowser desktop agent console for macOS and Windows",
   "author": "Nextbrowser",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
-  "main": "electron/main.cjs",
+  "main": "electron/bootstrap.cjs",
   "scripts": {
+    "predev": "node scripts/build-live-window.cjs",
     "dev": "concurrently -k \"vite --port 1421\" \"wait-on tcp:1421 && cross-env VITE_DEV_SERVER_URL=http://localhost:1421 electron .\"",
+    "prebuild": "node scripts/build-live-window.cjs",
     "build": "npm run validate:skills && tsc && vite build",
     "postinstall": "electron-builder install-app-deps && node scripts/ensure-pty-helper.cjs",
     "test": "vitest run --exclude \"**/*.test.cjs\" && node scripts/test-node.mjs && node scripts/verify-pty.cjs",
@@ -21,12 +23,15 @@
     "dist:win": "npm run build && electron-builder --win nsis --publish never",
     "icons": "node scripts/generate-icons.mjs",
     "validate:skills": "node scripts/validate-skills.mjs",
-    "test:critical": "node scripts/test-critical.mjs"
+    "test:critical": "node scripts/test-critical.mjs",
+    "test:tooltips": "node scripts/test-shared-tooltips.mjs",
+    "test:composer": "node scripts/test-chat-composer.mjs"
   },
   "dependencies": {
     "@fontsource/hanken-grotesk": "^5.3.0",
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
+    "@internationalized/date": "^3.12.3",
     "@nextbrowser-oss/facebook-monitoring": "github:nextbrowser-oss/nextbrowser-facebook-monitoring#bde1e5b802d841ed4cf64ab4b40ad5203325468c",
     "@nextbrowser-oss/instagram-monitoring": "github:nextbrowser-oss/nextbrowser-instagram-monitoring#b8f8c7638e9cc167cb227c2638f85dcbb4dd1bde",
     "@nextbrowser-oss/linkedin-monitoring": "github:nextbrowser-oss/nextbrowser-linkedin-monitoring#0b945f6214232e8799d18b2543973ccdd53a7aed",
@@ -39,13 +44,17 @@
     "electron-updater": "^6.8.9",
     "lucide-react": "^1.22.0",
     "node-pty": "^1.1.0",
+    "playwright-core": "1.56.1",
     "react": "^18.3.1",
+    "react-aria-components": "^1.19.0",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "smol-toml": "^1.4.2",
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@testing-library/react": "16.3.3",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
@@ -54,16 +63,25 @@
     "cross-env": "^7.0.3",
     "electron": "^43.0.0",
     "electron-builder": "^26.15.3",
-    "playwright-core": "1.56.1",
+    "jsdom": "27.0.1",
     "typescript": "^5.6.2",
     "vite": "^8.1.2",
     "vitest": "^4.1.9",
-    "wait-on": "^8.0.1"
+    "wait-on": "^8.0.1",
+    "ws": "8.22.1"
   },
   "build": {
     "appId": "com.nextbrowser.desktop",
     "productName": "NextBrowser",
     "asar": true,
+    "asarUnpack": [
+      "electron/account-activity-worker.cjs",
+      "electron/tab-mcp.cjs",
+      "electron/tab-mcp-launcher.cjs",
+      "electron/user-mcp-launcher.cjs",
+      "electron/mcp-environment.cjs",
+      "electron/mcp-http-client.cjs"
+    ],
     "publish": [
       {
         "provider": "github",
@@ -73,6 +91,7 @@
     ],
     "files": [
       "dist/**/*",
+      "src/shared/lib/i18n/messages/*.json",
       "electron/**/*",
       "package.json"
     ],
@@ -89,6 +108,16 @@
       }
     ],
     "mac": {
+      "extraResources": [
+        {
+          "from": "build/input-language",
+          "to": "input-language"
+        },
+        {
+          "from": "build/live-window-helper",
+          "to": "live-window-helper"
+        }
+      ],
       "target": [
         "dmg",
         "zip"
@@ -102,6 +131,12 @@
       }
     },
     "win": {
+      "extraResources": [
+        {
+          "from": "build/live-window-helper.exe",
+          "to": "live-window-helper.exe"
+        }
+      ],
       "target": [
         {
           "target": "nsis",

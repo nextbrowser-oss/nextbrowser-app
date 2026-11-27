@@ -1,8 +1,11 @@
+import { translate } from "../shared/lib/i18n";
+import { Tooltip } from "../shared/ui";
 import { useState, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { invoke } from "../electronBridge";
 import { Icon } from "./Icon";
+import { ErrorSupportLink } from "./UserFacingError";
 
 export interface LocalFileLink {
   label: string;
@@ -59,28 +62,27 @@ function LocalFileCard({ path, label }: { path: string; label: string }) {
   const open = async (target: string) => {
     setError(undefined);
     try { await invoke("open_path", { path: target }); }
-    catch { setError("Could not open this location. Check that it still exists."); }
+    catch { setError(translate("Could not open this location. Check that it still exists.")); }
   };
   return (
-    <span className="local-file-card" title={path}>
+    <Tooltip content={path}><span className="local-file-card">
       <Icon name="doc" size={15} />
       <span className="local-file-name">{label || fileNameFromPath(path)}</span>
       {error && <span role="alert">{error}</span>}
-      <button className="local-file-open" onClick={() => void open(path)}>Open</button>
-      <button
+      <button className="local-file-open" onClick={() => void open(path)}>{translate("Open")}</button>
+      <Tooltip content={translate("Show in Finder / Explorer")}><button
         className="local-file-reveal plain-icon-btn plain-icon-btn-compact"
-        title="Show in Finder / Explorer"
-        aria-label={`Show ${label || fileNameFromPath(path)} in folder`}
+        aria-label={translate("Show %1 in folder", label || fileNameFromPath(path))}
         onClick={() => void open(containingFolderPath(path))}
       >
         <Icon name="folder" size={13} />
-      </button>
-    </span>
+      </button></Tooltip>
+    </span></Tooltip>
   );
 }
 
 const markdownComponents: Components = {
-  a({ href = "", children }) {
+  a({ href = "", children, title }) {
     const decodedHref = (() => {
       try { return decodeURI(href); } catch { return href; }
     })();
@@ -93,7 +95,10 @@ const markdownComponents: Components = {
       event.preventDefault();
       void invoke("open_external", { url: href });
     };
-    return <a href={href} onClick={open} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined}>{children}</a>;
+    return <Tooltip content={title}><a href={href} onClick={open} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined}>{children}</a></Tooltip>;
+  },
+  img({ title, node: _node, ...props }) {
+    return <Tooltip content={title}><img {...props} /></Tooltip>;
   },
 };
 
@@ -105,5 +110,22 @@ export function MarkdownText({ text }: { text: string }) {
         {text}
       </ReactMarkdown>
     </div>
+  );
+}
+
+/** The runner appends its diagnostic on the last line of a saved partial reply. */
+export function MarkdownReplyWithSupport({ text, diagnosticRef }: { text: string; diagnosticRef?: string }) {
+  const trimmed = text.trimEnd();
+  const lineStart = trimmed.lastIndexOf("\n") + 1;
+  const diagnostic = diagnosticRef && trimmed.endsWith(`Ref: ${diagnosticRef}`) ? trimmed.slice(lineStart) : "";
+  const body = diagnostic ? trimmed.slice(0, lineStart).trimEnd() : text;
+  return (
+    <>
+      {body && <MarkdownText text={body} />}
+      <div className="chat-reply-support user-facing-error">
+        {diagnostic && <>{diagnostic}{" "}</>}
+        <ErrorSupportLink message={text} surface="agent_turn" />
+      </div>
+    </>
   );
 }

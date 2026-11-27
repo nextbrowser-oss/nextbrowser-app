@@ -1,35 +1,55 @@
+import { InterfaceLanguageSetting } from "./components/InterfaceLanguageSetting";
+import { translate } from "./shared/lib/i18n";
+import { AccountProfileView } from "./components/AccountProfileView";
+import { Button, glassSurfaceClassName, IconButton, Tooltip } from "./shared/ui";
+import { useAgentPermission } from "./components/AgentPermissionCard";
 import { addPendingRuntimeInstall, downloadableBrowsers, runtimeInstalling } from "./lib/settingsUpdates";
 import { RuntimeInstallationProgress } from "./components/RuntimeInstallationProgress";
 import { BrowserRuntimeUpdatePrompt, ClawbrowserCloseProfilesPrompt, type BrowserRuntimeUpdateEntry } from "./components/BrowserRuntimeUpdatePrompt";
 import { InstallationProgress, InstallationSpinner } from "./components/InstallationProgress";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useStore } from "./store";
+import { TitlebarActions } from "./components/DesktopShell";
+import { CommunityControls } from "./components/CommunityControls";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SkillsView } from "./components/SkillsView";
+import { MiniAppsPage } from "./pages/mini-apps";
 import { LiveView } from "./components/LiveView";
+import { ChatLiveWorkspace } from "./components/ChatLiveWorkspace";
+import { isMiniPanel, miniPanel, panelIds, type Edge } from "./lib/liveDock";
+import { useSessionDock } from "./lib/sessionDock";
+import { SessionMiniApps } from "./components/SessionMiniApps";
+import { LiveSessionsGrid, LiveSessionsPopover } from "./components/LiveSessions";
+import { useLiveSessions } from "./lib/useLiveSessions";
 import { UsageView } from "./components/UsageView";
 import { GuideView } from "./components/GuideView";
-import { ScheduledRunsPanel } from "./components/ScheduledRunsPanel";
+import { UtilityDialogs } from "./components/UtilityDialogs";
 import { OnboardingView } from "./components/OnboardingView";
 import { DashboardKeyModal } from "./components/DashboardKeyModal";
 import { TrafficGateModal } from "./components/TrafficGateModal";
 import { GitHubStarModal } from "./components/GitHubStarReward";
-import { GITHUB_STARS_REFRESH_EVENT, shouldAskForGitHubStar } from "./lib/githubStarReward";
+import { shouldAskForGitHubStar } from "./lib/githubStarReward";
 import { ProfileCreateRequestModal } from "./components/ProfileCreateRequestModal";
 import { BrandLogo } from "./components/BrandLogo";
 import { Icon, Spinner } from "./components/Icon";
 import { AgentPicker } from "./components/AgentPicker";
-import { brandName, discordUrl, latestReleaseUrl, repoUrl } from "./constants";
+import { brandName, latestReleaseUrl } from "./constants";
 import { trafficAllowanceBytes, trafficAllowanceFraction, trafficGateState, trafficGateStateLabel, trafficGateStateTone } from "./lib/trafficGate";
 import { getPreviewMode, getPreviewNodeMavenState, getPreviewTab } from "./preview";
 import { humanBytes, type AppTab, type Conversation } from "./types";
-import { resolveTheme, type Theme } from "./theme";
+import { readThemePreference, resolveTheme, subscribeToSystemTheme, systemPrefersLight, type Theme, type ThemePreference } from "./theme";
+import { ThemePicker } from "./components/ThemePicker";
+import { ThemeEditor } from "./components/ThemeEditor";
+import { ThemePresets } from "./components/ThemePresets";
+import { useAppearance } from "./lib/useAppearance";
 import { confirmedBrowserRuntimeUpdates } from "./lib/browserRuntimeUpdate";
 import { flushAnalyticsEngagement, initAnalytics, trackEvent, trackScreenView } from "./lib/analytics";
+import { observeDesktopActivity } from "./lib/desktopActivity";
+import { observeAccountActivity } from "./lib/accountActivity";
 import {
   OPEN_AGENT_SETTINGS_EVENT,
-  appTabLabel,
+  isUtilityDialogTab,
   isAppBackShortcut,
   isPrimaryAppTab,
   popPreviousAppTab,
@@ -43,6 +63,7 @@ import { shouldDismissModalWithEscape, wrappedFocusTarget } from "./lib/modalKey
 import { invoke, listen } from "./electronBridge";
 import { agentById, isBuiltinAgent } from "./agents";
 import { BuiltinAgentSetup } from "./components/BuiltinAgentSetup";
+import { StockMcpPermissions } from "./components/StockMcpPermissions";
 import { releaseDownloadUrl } from "./lib/releaseDownload";
 import { UserFacingError } from "./components/UserFacingError";
 import { AgentConnectionGate, agentGateVisible } from "./components/AgentConnectionGate";
@@ -50,24 +71,21 @@ import { WorkspaceSetupGate } from "./components/WorkspaceSetupGate";
 import { AgentInstallLink } from "./components/AgentInstallLink";
 import { DeviceDataSettings } from "./components/DeviceDataSettings";
 import { SettingsPanel, SettingsRail } from "./components/SettingsSections";
+import { DeviceSessions } from "./components/DeviceSessions";
 import { SettingsUpdates } from "./components/SettingsUpdates";
+import { SettingsDiagnostics } from "./components/SettingsDiagnostics";
 import { availableRuntimeUpdates, latestRuntimeOperation, type AppUpdateStatus, type BrowserRuntimeUpdateStatus, type BrowserRuntimeUpdateInstallStatus } from "./lib/settingsUpdates";
 import { settingsAttention, settingsSectionForUpdates, type SettingsSection } from "./lib/settingsSections";
-import { ConnectorsView } from "./components/ConnectorsView";
 import { AutomationStudio } from "./components/AutomationStudio";
+import { MainViewNavigation } from "./components/MainViewNavigation";
 import { FeedbackModal } from "./components/FeedbackModal";
 import { feedbackPromptBlocked, feedbackPromptConfig, markFeedbackSubmitted, shouldPromptForFeedback } from "./lib/feedbackPrompt";
 import { multiloginSelectionForWorkspace } from "./lib/multiloginSelection";
 import { settingsStorage } from "./lib/settingsStorage";
+import { useMiniAppLibrary, useMiniAppsOwner } from "./lib/miniAppLibrary";
 import { countWorkspaceProfiles } from "./lib/workspaceProfiles";
 
-const TABS: { id: AppTab; label: string; icon?: string }[] = [
-  { id: "chat", label: "Project", icon: "folder" },
-  { id: "live", label: "Live", icon: "video.fill" },
-  { id: "automation", label: "Automation", icon: "arrow.triangle.branch" },
-];
-
-const PREVIEW_TABS = new Set<string>(["chat", "automation", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
+const PREVIEW_TABS = new Set<string>(["chat", "automation", "mini-apps", "skills", "connectors", "live", "usage", "guide", "scheduled"]);
 
 interface BrowserRuntimeInstallStatus {
   runtime?: "clawbrowser" | "dasbrowser" | "camoufox";
@@ -95,43 +113,24 @@ function clampUiScale(value: number): number {
 function UIScaleSlider({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (
     <>
-      <button
+      <Tooltip content={translate("Decrease interface size")}><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={() => onChange(clampUiScale(value - UI_SCALE_STEP))}
         disabled={value <= UI_SCALE_MIN}
-        title="Decrease interface size"
-        aria-label="Decrease interface size"
+        aria-label={translate("Decrease interface size")}
       >
         <Icon name="minus" size={12} />
-      </button>
+      </button></Tooltip>
       <span className="muted small ui-scale-value">{Math.round(value * 100)}%</span>
-      <button
+      <Tooltip content={translate("Increase interface size")}><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={() => onChange(clampUiScale(value + UI_SCALE_STEP))}
         disabled={value >= UI_SCALE_MAX}
-        title="Increase interface size"
-        aria-label="Increase interface size"
+        aria-label={translate("Increase interface size")}
       >
         <Icon name="plus" size={12} />
-      </button>
+      </button></Tooltip>
     </>
-  );
-}
-
-function UIScaleControl({ value, onChange, onDismiss, inline = false }: { value: number; onChange: (next: number) => void; onDismiss: () => void; inline?: boolean }) {
-  return (
-    <div className={"ui-scale-control" + (inline ? " ui-scale-control-inline" : "")} title="Interface size">
-      <Icon name="magnifyingglass" size={inline ? 11 : 13} />
-      <UIScaleSlider value={value} onChange={onChange} />
-      <button
-        className="plain-icon-btn plain-icon-btn-compact ui-scale-dismiss"
-        onClick={onDismiss}
-        title="Hide this control (it stays in Settings)"
-        aria-label="Hide the interface size control"
-      >
-        <Icon name="xmark" size={11} />
-      </button>
-    </div>
   );
 }
 
@@ -149,26 +148,25 @@ function BrowserRuntimeInstallModal({ status, onCancel, onHide }: { status: Brow
   return (
     <div className="browser-install-overlay" role="status" aria-live="polite">
       <div className="modal-card browser-install-modal" aria-labelledby="browser-install-title">
-        <button
+        <Tooltip content={translate("Hide — the download keeps running")}><button
           className="plain-icon-btn plain-icon-btn-compact background-card-hide"
           onClick={onHide}
-          title="Hide — the download keeps running"
-          aria-label={`Hide ${name} download progress`}
+          aria-label={translate("Hide %1 download progress", name)}
         >
           <Icon name="xmark" size={12} />
-        </button>
+        </button></Tooltip>
         <InstallationSpinner />
         <div className="browser-install-copy">
-          <strong id="browser-install-title">{installing ? `Installing ${name}` : `Downloading ${name}`}</strong>
+          <strong id="browser-install-title">{installing ? translate("Installing %1", name) : translate("Downloading %1", name)}</strong>
           <p className="muted small">
             {installing
-              ? "Finishing the browser setup. This may take a moment."
-              : `Preparing ${name} for its first profile. The download time depends on your connection.`}
+              ? translate("Finishing the browser setup. This may take a moment.")
+              : translate("Preparing %1 for its first profile. The download time depends on your connection.", name)}
           </p>
         </div>
-        <InstallationProgress label={installing ? `Installing ${name}` : `Downloading ${name}`} />
-        <p className="muted browser-install-note">Keep Nextbrowser open until setup is complete.</p>
-        {status.requestId && <div className="modal-actions"><button className="secondary danger-text" type="button" onClick={onCancel}><Icon name="stop.fill" size={12} /> Stop download</button></div>}
+        <InstallationProgress label={installing ? translate("Installing %1", name) : translate("Downloading %1", name)} />
+        <p className="muted browser-install-note">{translate("Keep Nextbrowser open until setup is complete.")}</p>
+        {status.requestId && <div className="modal-actions"><button className="secondary danger-text" type="button" onClick={onCancel}><Icon name="stop.fill" size={12} /> {translate("Stop download")}</button></div>}
       </div>
     </div>
   );
@@ -179,10 +177,10 @@ function BrowserRuntimeInstallModal({ status, onCancel, onHide }: { status: Brow
 // it is still visibly running and one click brings the full card back.
 function BackgroundTaskPill({ label, onShow }: { label: string; onShow: () => void }) {
   return (
-    <button type="button" className="background-task-pill" onClick={onShow} title={`${label} — show progress`}>
+    <Tooltip content={translate("%1 — show progress", label)}><button type="button" className="background-task-pill" onClick={onShow}>
       <Spinner size={11} />
       <span>{label}</span>
-    </button>
+    </button></Tooltip>
   );
 }
 
@@ -210,27 +208,27 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
         </div>
       )}
       <div className="runtime-update-progress-copy">
-        <strong>{installing ? `Updating ${status.currentName ?? "browser toolsets"}` : status.status === "cancelled" ? "Updates stopped" : failed ? "Update failed" : partial ? "Update partly complete" : "Browser toolsets updated"}</strong>
+        <strong>{installing ? translate("Setting up %1", status.currentName ?? "browsers") : status.status === "cancelled" ? translate("Browser setup stopped") : failed ? translate("Browser setup failed") : partial ? translate("Some browsers need attention") : translate("Browsers ready")}</strong>
         <span className="muted small">{status.message}</span>
         {installing && <>
-          {status.percent !== undefined && <span className="small">{status.percent}% downloaded</span>}
-          <button className="mini" disabled={status.cancelRequested} onClick={() => onCancel()}>{status.cancelRequested ? "Stopping…" : status.items?.length ? "Stop all installations" : status.canCancel ? "Cancel update" : "Stop after this component"}</button>
+          {status.percent !== undefined && <span className="small">{status.percent}{translate("% downloaded")}</span>}
+          <button className="mini" disabled={status.cancelRequested} onClick={() => onCancel()}>{status.cancelRequested ? translate("Stopping…") : status.items?.length ? translate("Stop all installations") : status.canCancel ? translate("Cancel update") : translate("Stop after this component")}</button>
         </>}
         {!!errors.length && (
           <div className="runtime-update-errors">
             {errors.map((error) => (
               <section className="runtime-update-error" key={error.runtime}>
                 <div className="runtime-update-error-heading">
-                  <span>{error.name} couldn’t update</span>
-                  {error.code && <span className="runtime-update-error-code" title={error.code}>{error.category ?? "Update could not finish"}</span>}
+                  <span>{error.name} {translate("couldn’t update")}</span>
+                  {error.code && <Tooltip content={error.code}><span className="runtime-update-error-code">{error.category ?? translate("Update could not finish")}</span></Tooltip>}
                 </div>
                 {/* The next step is what the user needs first; the raw message is
                     supporting detail, not the headline. */}
-                <p className="runtime-update-recovery">{error.recovery ?? "Keep Nextbrowser open, then try again."}</p>
+                <p className="runtime-update-recovery">{error.recovery ?? translate("Keep Nextbrowser open, then try again.")}</p>
                 <p className="muted small runtime-update-detail">{error.message}</p>
                 <div className="row runtime-update-error-actions">
-                  {error.retryable !== false && <button className="secondary small" onClick={() => onRetry([error.runtime])}>Retry {error.name}</button>}
-                  <button className="secondary small" onClick={() => onOpenManualGuide(error.releasePage)}>Update manually</button>
+                  {error.retryable !== false && <button className="secondary small" onClick={() => onRetry([error.runtime])}>{translate("Retry")} {error.name}</button>}
+                  <button className="secondary small" onClick={() => onOpenManualGuide(error.releasePage)}>{translate("Update manually")}</button>
                 </div>
               </section>
             ))}
@@ -238,22 +236,21 @@ function BrowserRuntimeUpdateProgress({ status, onClose, onCancel, onRetry, onOp
         )}
         {canRetry && (
           <div className="row runtime-update-error-actions">
-            <button className="secondary small" onClick={() => onRetry(retryRuntimes)}>Retry</button>
+            <button className="secondary small" onClick={() => onRetry(retryRuntimes)}>{translate("Retry")}</button>
           </div>
         )}
-        {needsAttention && <p className="runtime-update-requirements">Before retrying: keep Nextbrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.</p>}
+        {needsAttention && <p className="runtime-update-requirements">{translate("Before retrying: keep Nextbrowser open, use a stable connection, make sure there is free disk space, and close any running browser toolset.")}</p>}
       </div>
       {/* Hiding never cancels: the update keeps running behind a top-bar chip. */}
-      <button
+      <Tooltip content={installing ? translate("Hide — the update keeps running") : translate("Dismiss")}><button
         className="plain-icon-btn plain-icon-btn-compact"
         onClick={onClose}
-        title={installing ? "Hide — the update keeps running" : "Dismiss"}
-        aria-label={installing ? "Hide update progress" : "Dismiss update status"}
+        aria-label={installing ? translate("Hide update progress") : translate("Dismiss update status")}
       >
         <Icon name="xmark" size={12} />
-      </button>
+      </button></Tooltip>
       {!!status.items?.length && <div className="runtime-install-items">{status.items.map((item) => <RuntimeInstallationProgress key={item.runtime} item={item} onCancel={onCancel} />)}</div>}
-      {installing && !status.items?.length && <InstallationProgress label={`Updating ${status.currentName ?? "browser toolsets"}`} percent={status.percent} />}
+      {installing && !status.items?.length && <InstallationProgress label={translate("Updating %1", status.currentName ?? "browser toolsets")} percent={status.percent} />}
     </div>
   );
   // A transient status (installing, or a clean success) is ambient and stays
@@ -291,171 +288,55 @@ function browserRuntimeUpdateSignature(runtimes: BrowserRuntimeUpdateEntry[]): s
 }
 
 function updateLabel(status?: AppUpdateStatus | null): string {
-  if (!status) return "Check for updates";
-  if (status.status === "available") return `Update to ${status.version ?? "new version"}`;
-  if (status.status === "downloading") return `Downloading ${status.percent ?? 0}%`;
-  if (status.status === "downloaded") return `Restart to install ${status.version ?? "update"}`;
-  if (status.status === "not-available") return "Up to date";
-  if (status.status === "checking") return "Checking...";
-  if (status.status === "disabled") return "Updates unavailable in this build";
+  if (!status) return translate("Check for updates");
+  if (status.status === "available") return translate("Update to %1", status.version ?? "new version");
+  if (status.status === "downloading") return translate("Downloading %1%", status.percent ?? 0);
+  if (status.status === "downloaded") return translate("Restart to install %1", status.version ?? "update");
+  if (status.status === "not-available") return translate("Up to date");
+  if (status.status === "checking") return translate("Checking...");
+  if (status.status === "disabled") return translate("Updates unavailable in this build");
   if (status.status === "error") {
     // Surface the updater's own reason when the main process provided one,
     // instead of a generic message that hides what actually failed.
     const detail = status.message?.trim();
     if (!detail || detail === APP_UPDATE_ERROR) return APP_UPDATE_ERROR;
-    return `We couldn't update the Nextbrowser app: ${detail}`;
+    return translate("We couldn't update the Nextbrowser app: %1", detail);
   }
-  return "Check for updates";
+  return translate("Check for updates");
 }
 
-function ThemeToggle({ theme, onToggle, floating = false }: {
-  theme: Theme;
-  onToggle: () => void;
-  floating?: boolean;
-}) {
-  const label = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
-  return (
-    <button
-      className={`theme-toggle plain-icon-btn${floating ? " theme-toggle-floating" : ""}`}
-      onClick={onToggle}
-      title={label}
-      aria-label={label}
-    >
-      <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
-    </button>
-  );
+function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
+  const label = theme === "dark" ? translate("Switch to light theme") : translate("Switch to dark theme");
+  return <IconButton appearance="plain" size="small" className="theme-toggle" label={label} onClick={onToggle}>
+    <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
+  </IconButton>;
 }
 
 function SettingsButton({ onClick, hasUpdate }: { onClick: () => void; hasUpdate?: boolean }) {
   return (
-    <button
+    <Tooltip content={hasUpdate ? translate("Settings — update available") : translate("Settings")}><button
       className="settings-toggle plain-icon-btn"
       onClick={onClick}
-      title={hasUpdate ? "Settings — update available" : "Settings"}
-      aria-label={hasUpdate ? "Settings, update available" : "Settings"}
+      aria-label={hasUpdate ? translate("Settings, update available") : translate("Settings")}
     >
       <Icon name="gearshape" size={18} />
       {hasUpdate && <span className="settings-update-dot" aria-hidden="true" />}
-    </button>
-  );
-}
-
-function GithubMark({ size = 15 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden focusable="false">
-      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.02-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
-    </svg>
-  );
-}
-
-function DiscordMark({ size = 17 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden focusable="false">
-      <path d="M20.32 4.37A19.8 19.8 0 0 0 15.36 2.8a.08.08 0 0 0-.09.04c-.21.38-.45.88-.62 1.27a18.38 18.38 0 0 0-5.5 0 12.38 12.38 0 0 0-.63-1.27.08.08 0 0 0-.09-.04 19.73 19.73 0 0 0-4.96 1.57.07.07 0 0 0-.03.03C.31 9.1-.55 13.68-.13 18.21c0 .02.01.05.03.06a19.9 19.9 0 0 0 6.08 3.07.08.08 0 0 0 .09-.03c.47-.64.88-1.31 1.24-2.01a.08.08 0 0 0-.04-.11 13.04 13.04 0 0 1-1.9-.91.08.08 0 0 1-.01-.13c.13-.09.25-.19.37-.29a.08.08 0 0 1 .08-.01c3.98 1.82 8.3 1.82 12.24 0a.08.08 0 0 1 .08.01c.12.1.25.2.38.29a.08.08 0 0 1-.01.13c-.6.36-1.23.66-1.9.91a.08.08 0 0 0-.04.11c.36.7.77 1.37 1.24 2.01a.08.08 0 0 0 .09.03 19.84 19.84 0 0 0 6.08-3.07.08.08 0 0 0 .03-.06c.5-5.23-.84-9.77-3.63-13.81a.06.06 0 0 0-.03-.03ZM8.02 15.45c-1.2 0-2.18-1.1-2.18-2.45s.96-2.45 2.18-2.45c1.23 0 2.2 1.11 2.18 2.45 0 1.35-.96 2.45-2.18 2.45Zm7.96 0c-1.2 0-2.18-1.1-2.18-2.45s.96-2.45 2.18-2.45c1.23 0 2.2 1.11 2.18 2.45 0 1.35-.95 2.45-2.18 2.45Z" />
-    </svg>
-  );
-}
-
-function formatStars(count?: number | null): string {
-  if (count == null) return "—";
-  if (count < 1000) return `${count}`;
-  const rounded = count < 10_000 ? Math.round(count / 100) / 10 : Math.round(count / 1000);
-  return `${rounded}k`;
-}
-
-// The host reuses a count for two minutes and answers a refresh no more than
-// every 15 seconds, so polling and focus refreshes cost little.
-const GITHUB_STARS_POLL_MS = 2 * 60 * 1000;
-// A count that just changed on GitHub (the user's own star) can trail the
-// stargazer list by a moment, so a verified star reads it twice.
-const GITHUB_STARS_SETTLE_MS = 20 * 1000;
-
-function GithubStarButton({ stars }: { stars?: number | null }) {
-  const label = "Star Nextbrowser on GitHub";
-  return (
-    <button
-      className="social-button github-star-btn"
-      onClick={() => window.open(repoUrl, "_blank", "noopener,noreferrer")}
-      title={label}
-      aria-label={label}
-    >
-      <GithubMark size={17} />
-      <span className="github-star-count">
-        <Icon name="star.fill" size={11} fill="currentColor" className="github-star-glyph" />
-        {formatStars(stars)}
-      </span>
-    </button>
-  );
-}
-
-function DiscordButton() {
-  return (
-    <button
-      className="social-button discord-button"
-      onClick={() => window.open(discordUrl, "_blank", "noopener,noreferrer")}
-      title="Join Nextbrowser on Discord"
-      aria-label="Join Nextbrowser on Discord"
-    >
-      <DiscordMark size={18} />
-    </button>
+    </button></Tooltip>
   );
 }
 
 function FeedbackButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      className="social-button feedback-button"
+    <Tooltip side="bottom" content={translate("Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)")}><button
+      className="titlebar-feedback"
+      type="button"
+      aria-haspopup="dialog"
       onClick={onClick}
-      title="Send feedback (⌘⇧F on macOS, Ctrl+Shift+F on Windows/Linux)"
-      aria-label="Send feedback. Shortcut: Command or Control, Shift, F"
+      aria-label={translate("Send feedback. Shortcut: Command or Control, Shift, F")}
     >
       <Icon name="bubble.left.and.bubble.right.fill" size={17} />
-      <span>Feedback</span>
-    </button>
-  );
-}
-
-function SocialButtons() {
-  // No number until the host answers: a stale one would read as a lost star.
-  const [stars, setStars] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    let settleTimer: number | undefined;
-    const load = (refresh: boolean) => {
-      invoke<number | null>("github_stars", refresh ? { refresh: true } : {})
-        .then((count) => {
-          if (!cancelled && typeof count === "number") setStars(count);
-        })
-        .catch(() => undefined);
-    };
-    load(false);
-    const poll = window.setInterval(() => {
-      if (document.visibilityState === "visible") load(false);
-    }, GITHUB_STARS_POLL_MS);
-    // Coming back from the repository page is when a star was likely added.
-    const onFocus = () => load(true);
-    const onStarVerified = () => {
-      load(true);
-      window.clearTimeout(settleTimer);
-      settleTimer = window.setTimeout(() => load(true), GITHUB_STARS_SETTLE_MS);
-    };
-    window.addEventListener("focus", onFocus);
-    window.addEventListener(GITHUB_STARS_REFRESH_EVENT, onStarVerified);
-    return () => {
-      cancelled = true;
-      window.clearInterval(poll);
-      window.clearTimeout(settleTimer);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener(GITHUB_STARS_REFRESH_EVENT, onStarVerified);
-    };
-  }, []);
-
-  return (
-    <div className="social-buttons">
-      <GithubStarButton stars={stars} />
-      <DiscordButton />
-    </div>
+      <span>{translate("Feedback")}</span>
+    </button></Tooltip>
   );
 }
 
@@ -464,11 +345,11 @@ function GlobalErrorNotice({ error, onClose }: { error: { reference: string; det
     <div className="global-error-notice" role="alert">
       <Icon name="exclamationmark.triangle.fill" size={15} />
       <span className="global-error-copy">
-        <span title={error.detail}>
+        <Tooltip content={error.detail}><span>
           <UserFacingError message={`Unexpected app error. Ref: ${error.reference}`} surface="unexpected_app_error" />
-        </span>
+        </span></Tooltip>
       </span>
-      <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label="Dismiss error">
+      <button className="plain-icon-btn plain-icon-btn-compact" onClick={onClose} aria-label={translate("Dismiss error")}>
         <Icon name="xmark" size={12} />
       </button>
     </div>
@@ -493,14 +374,14 @@ function ManualReleaseDownload({ onOpen, version, onLater }: { onOpen: () => Pro
   };
   return <div className="manual-release-download">
     <div className="manual-release-actions">
-      {onLater && <button className="secondary" autoFocus onClick={onLater}>Later</button>}
-      <button className={onLater ? "primary release-download-button" : "mini primary-mini release-download-button"} title={downloadUrl} disabled={state === "opening"} onClick={() => void open()}>
+      {onLater && <button className="secondary" autoFocus onClick={onLater}>{translate("Later")}</button>}
+      <Tooltip content={downloadUrl}><button className={onLater ? "primary release-download-button" : "mini primary-mini release-download-button"} disabled={state === "opening"} onClick={() => void open()}>
         {state === "opening" && <Spinner size={12} />}
-        {state === "opening" ? "Opening download…" : "Download update"}
-      </button>
+        {state === "opening" ? translate("Opening download…") : translate("Download update")}
+      </button></Tooltip>
     </div>
-    {state === "opened" && <p className="muted small" role="status">Download opened in your browser. When it finishes, open the DMG from Downloads and drag Nextbrowser into Applications.</p>}
-    {state === "error" && <p className="error small" role="alert">Could not open the download. Please try again.</p>}
+    {state === "opened" && <p className="muted small" role="status">{translate("Download opened in your browser. When it finishes, open the DMG from Downloads and drag Nextbrowser into Applications.")}</p>}
+    {state === "error" && <p className="error small" role="alert">{translate("Could not open the download. Please try again.")}</p>}
   </div>;
 }
 
@@ -525,10 +406,12 @@ function SettingsModal({
   onInstallUpdate,
   onOpenRelease,
   onRequestBrowserRuntimeUpdate,
+  themePreference,
+  onThemeChange,
+  activeTheme,
+  appearanceSettings,
   uiScale,
   onUiScaleChange,
-  uiScaleFloatingHidden,
-  onRestoreFloatingScale,
 }: {
   onClose: () => void;
   section?: SettingsSection | null;
@@ -548,10 +431,12 @@ function SettingsModal({
   onInstallUpdate: () => void;
   onOpenRelease: () => Promise<void>;
   onRequestBrowserRuntimeUpdate: (runtime: BrowserRuntimeUpdateEntry) => void;
+  themePreference: ThemePreference;
+  onThemeChange: (next: ThemePreference) => void;
+  activeTheme: Theme;
+  appearanceSettings: ReturnType<typeof useAppearance>;
   uiScale: number;
   onUiScaleChange: (next: number) => void;
-  uiScaleFloatingHidden: boolean;
-  onRestoreFloatingScale: () => void;
 }) {
   const [agentLogoutPending, setAgentLogoutPending] = useState(false);
   const [errorReporting, setErrorReporting] = useState<ErrorReportingStatus>();
@@ -571,6 +456,7 @@ function SettingsModal({
   const nextctlVersion = useStore((s) => s.nextctlVersion);
   const nextctlUpdating = useStore((s) => s.nextctlUpdating);
   const nextctlUpdateError = useStore((s) => s.nextctlUpdateError);
+  const nextctlCompatibilityError = useStore((s) => s.nextctlCompatibilityError);
   const nextctlUpdateStatus = useStore((s) => s.nextctlUpdateStatus);
   const checkNextctlUpdate = useStore((s) => s.checkNextctlUpdate);
   const agentId = useStore((s) => s.agentId);
@@ -613,6 +499,8 @@ function SettingsModal({
   };
 
   const [section, setSection] = useState<SettingsSection>(requestedSection ?? "general");
+  const [preferTabTools, setPreferTabTools] = useState(() => settingsStorage.getItem("nextbrowser.preferTabTools") !== "0");
+  const [useHarness2, setUseHarness2] = useState(() => settingsStorage.getItem("nextbrowser.useHarness2") !== "0");
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageVisited, setUsageVisited] = useState(false);
   useEffect(() => {
@@ -665,28 +553,39 @@ function SettingsModal({
     <div className="modal-overlay settings-overlay" onMouseDown={onClose}>
       <div ref={dialogRef} className={"modal-card settings-modal" + (section === "proxy" && usageOpen ? " has-usage" : "")} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onMouseDown={(e) => e.stopPropagation()}>
         <div className="settings-modal-header">
-          <strong id="settings-title">Settings</strong>
-          <button className="plain-icon-btn" onClick={onClose} title="Close" aria-label="Close settings">
+          <strong id="settings-title">{translate("Settings")}</strong>
+          <Tooltip content={translate("Close")}><button className="plain-icon-btn" onClick={onClose} aria-label={translate("Close settings")}>
             <Icon name="xmark" size={16} />
-          </button>
+          </button></Tooltip>
         </div>
         <div className="settings-layout">
           <SettingsRail section={section} attention={attention} onSelect={setSection} />
 
           <SettingsPanel section={section}>
+            {section === "devices" && <DeviceSessions />}
             {section === "general" && (
               <div className="settings-group">
                 <div className="settings-row"><span className="muted small">Nextbrowser</span><strong>{__APP_VERSION__}</strong></div>
+                <InterfaceLanguageSetting />
+                <SettingsDiagnostics />
                 <button className="settings-feature-link" onClick={() => setSection("updates")}>
-                  <Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>Versions and updates</strong><span className="muted small">All components and Update all</span></span><Icon name="chevron.right" size={14} />
+                  <Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>{translate("Versions and updates")}</strong><span className="muted small">{translate("All components and Update all")}</span></span><Icon name="chevron.right" size={14} />
                 </button>
                 <div className="settings-row">
-                  <span className="muted small">Interface size</span>
-                  <div className="ui-scale-control ui-scale-control-settings">
+                  <span className="muted small">{translate("Interface size")}</span>
+                  <div className="ui-scale-control-settings">
                     <UIScaleSlider value={uiScale} onChange={onUiScaleChange} />
-                    {uiScaleFloatingHidden && <button className="plain-icon-btn plain-icon-btn-compact" onClick={onRestoreFloatingScale} title="Return the quick-access control to the main screen" aria-label="Return the interface-size quick-access control to the main screen"><Icon name="arrow.uturn.left" size={12} /></button>}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {section === "themes" && (
+              <div className="theme-settings">
+                <ThemePresets mode={activeTheme} {...appearanceSettings} />
+                <ThemePicker value={themePreference} activeTheme={activeTheme} onChange={onThemeChange} palettes={appearanceSettings.resolvedPalettes}
+                  preset={appearanceSettings.presetName} />
+                <ThemeEditor key={appearanceSettings.library.activeId + activeTheme} mode={activeTheme} {...appearanceSettings} />
               </div>
             )}
 
@@ -695,11 +594,11 @@ function SettingsModal({
                 appVersion={__APP_VERSION__} appUpdate={appUpdate}
                 appLabel={appUpdate.status === "error" ? <UserFacingError message={updateLabel(appUpdate)} surface="app_update" /> : updateLabel(appUpdate)}
                 appActions={manualUpdate ? (updateAvailable(appUpdate) ? <ManualReleaseDownload onOpen={onOpenRelease} version={appUpdate.version} /> : null) : <>
-                  {appUpdate.status === "available" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onDownloadUpdate}>Download</button>}
-                  {appUpdate.status === "downloaded" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onInstallUpdate}>Restart and update</button>}
+                  {appUpdate.status === "available" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onDownloadUpdate}>{translate("Download")}</button>}
+                  {appUpdate.status === "downloaded" && <button className="mini primary-mini" disabled={bulkUpdating || runtimeOperation.status === "installing" || nextctlUpdating} onClick={onInstallUpdate}>{translate("Restart and update")}</button>}
                 </>}
                 runtimes={browserRuntimeUpdates} operation={runtimeOperation}
-                nextctlVersion={nextctlVersion} cliUpdating={nextctlUpdating} cliError={nextctlUpdateError} cliStatus={nextctlUpdateStatus}
+                nextctlVersion={nextctlVersion} cliUpdating={nextctlUpdating} cliError={nextctlUpdateError || nextctlCompatibilityError} cliStatus={nextctlUpdateStatus}
                 agentName={agentName} agentVersion={agentVersion || ""}
                 bulkUpdating={bulkUpdating} bulkOutcome={bulkOutcome}
                 onCheck={() => { onCheckUpdate(); onCheckBrowserRuntimeUpdates(); }}
@@ -713,20 +612,20 @@ function SettingsModal({
                 {errorReporting && (
                   <div className="settings-group">
                     <div className="settings-row">
-                      <span className="small">Send error reports</span>
-                      <label className="toggle" title={errorReporting.available ? ERROR_REPORTING_HINT : "Development builds do not send error reports."}>
+                      <span className="small">{translate("Send error reports")}</span>
+                      <Tooltip content={errorReporting.available ? ERROR_REPORTING_HINT : translate("Development builds do not send error reports.")}><label className="toggle">
                         <input
                           type="checkbox"
-                          aria-label="Send error reports"
+                          aria-label={translate("Send error reports")}
                           checked={errorReporting.enabled}
                           onChange={(event) => changeErrorReporting(event.target.checked)}
                         />
                         <span className="toggle-track"><span className="toggle-knob" /></span>
-                      </label>
+                      </label></Tooltip>
                     </div>
                     <p className="muted small settings-group-note">
                       {ERROR_REPORTING_HINT}
-                      {!errorReporting.available && " Development builds do not send error reports."}
+                      {!errorReporting.available && translate(" Development builds do not send error reports.")}
                     </p>
                   </div>
                 )}
@@ -743,38 +642,62 @@ function SettingsModal({
                   <span className="settings-feature-copy">
                     <strong>{agentName}</strong>
                     <span className="muted small">
-                      {agentReady ? agentVersion || "connected" : agentNeedsLogin ? `${agentName} is signed out` : builtinAgent ? "Free and paid models, no install" : `${agentName} is not connected`}
+                      {agentReady ? agentVersion || translate("connected") : agentNeedsLogin ? translate("%1 is signed out", agentName) : builtinAgent ? translate("Free and paid models, no install") : translate("%1 is not connected", agentName)}
                     </span>
                   </span>
                   <span className={"agent-state-pill" + (agentReady ? " is-ready" : "")}>
-                    {agentReady ? "Ready" : agentNeedsLogin ? "Login required" : builtinAgent ? "Not set up" : "Offline"}
+                    {agentReady ? translate("Ready") : agentNeedsLogin ? translate("Login required") : builtinAgent ? translate("Not set up") : translate("Offline")}
                   </span>
                 </div>
                 <div className="settings-agent-picker-row">
-                  <AgentPicker label="Active" />
+                  <AgentPicker label={translate("Active")} />
                   {!builtinAgent && <div className="settings-agent-actions">
                     {!agentDetected && (
-                      <button className="mini primary-mini" title={`Connect ${agentName}`} onClick={() => authorizeAgent()}>
-                        Connect
-                      </button>
+                      <Tooltip content={translate("Connect %1", agentName)}><button className="mini primary-mini" onClick={() => authorizeAgent()}>{translate("Connect")}</button></Tooltip>
                     )}
                     {agentDetected && agentLoggedIn !== true && !agentLogoutPending && (
-                      <button className="mini" title={`Open ${agentName} login`} onClick={() => loginAgent()}>
-                        Login
-                      </button>
+                      <Tooltip content={translate("Open %1 login", agentName)}><button className="mini" onClick={() => loginAgent()}>{translate("Login")}</button></Tooltip>
                     )}
                     {agentDetected && agentLogoutPending && (
                       <button className="mini" disabled aria-live="polite">
-                        <Spinner size={12} /> Signing out…
-                      </button>
+                        <Spinner size={12} /> {translate("Signing out…")}</button>
                     )}
                     {agentReady && agentLoggedIn === true && !agentLogoutPending && agentById(agentId).logoutArgs.length > 0 && (
-                      <button className="mini" title={`Sign out of ${agentName}`} onClick={() => void handleAgentLogout()}>
-                        Log out
-                      </button>
+                      <Tooltip content={translate("Sign out of %1", agentName)}><button className="mini" onClick={() => void handleAgentLogout()}>{translate("Log out")}</button></Tooltip>
                     )}
                   </div>}
                 </div>
+                <div className="settings-group">
+                  <div className="settings-row">
+                    <label htmlFor="prefer-tab-tools" className="small">{translate("Prefer WebMCP")}</label>
+                    <label className="toggle">
+                      <input id="prefer-tab-tools" type="checkbox" role="switch" checked={preferTabTools}
+                        aria-describedby="tab-tools-help" onChange={event => {
+                          const enabled = event.currentTarget.checked;
+                          settingsStorage.setItem("nextbrowser.preferTabTools", enabled ? "1" : "0");
+                          setPreferTabTools(enabled);
+                        }} />
+                      <span className="toggle-track"><span className="toggle-knob" /></span>
+                    </label>
+                  </div>
+                  <p id="tab-tools-help" className="muted small settings-group-note">{translate("Use the active site's tools when available, with standard browser controls as a fallback. Applies to new Nextbrowser and Codex chat turns and new Codex terminals.")}</p>
+                </div>
+                <div className="settings-group">
+                  <div className="settings-row">
+                    <label htmlFor="use-harness2" className="small">{translate("Use Harness²")}</label>
+                    <label className="toggle">
+                      <input id="use-harness2" type="checkbox" role="switch" checked={useHarness2}
+                        aria-describedby="harness2-help" onChange={event => {
+                          const enabled = event.currentTarget.checked;
+                          settingsStorage.setItem("nextbrowser.useHarness2", enabled ? "1" : "0");
+                          setUseHarness2(enabled);
+                        }} />
+                      <span className="toggle-track"><span className="toggle-knob" /></span>
+                    </label>
+                  </div>
+                  <p id="harness2-help" className="muted small settings-group-note">{translate("Let the agent compare two approaches with the current model at any point in a task, from planning to choosing the next step. Applies to new chat turns.")}</p>
+                </div>
+                {activeWorkspaceId && <StockMcpPermissions key={activeWorkspaceId} workspaceId={activeWorkspaceId} />}
                 {builtinAgent && <BuiltinAgentSetup />}
                 {agentError && !builtinAgent && (
                   <div className="error small settings-agent-error">
@@ -789,15 +712,11 @@ function SettingsModal({
               <>
                 <div className="settings-group">
                   <div className="settings-row">
-                    <span className="muted small">nextctl</span>
-                    <strong>{nextctlVersion || "not detected"}</strong>
-                  </div>
-                  <div className="settings-row">
-                    <span className="muted small">Profiles</span>
+                    <span className="muted small">{translate("Profiles")}</span>
                     <strong>{profiles}</strong>
                   </div>
                 </div>
-                <button className="settings-feature-link" onClick={() => setSection("updates")}><Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>Browser toolsets and updates</strong><span className="muted small">Manage installed versions in Updates</span></span><Icon name="chevron.right" size={14} /></button>
+                <button className="settings-feature-link" onClick={() => setSection("updates")}><Icon name="arrow.down.circle" size={17} /><span className="settings-feature-copy"><strong>{translate("Browser toolsets and updates")}</strong><span className="muted small">{translate("Manage installed versions in Updates")}</span></span><Icon name="chevron.right" size={14} /></button>
               </>
             )}
 
@@ -805,13 +724,13 @@ function SettingsModal({
               <>
                 <div className="settings-group">
                   <div className="settings-row">
-                    <span className="muted small">Proxy</span>
+                    <span className="muted small">{translate("Proxy")}</span>
                     {proxy ? (
                       <span className={`status-pill proxy-state ${trafficGateStateTone(proxy)}`}>
                         {trafficGateStateLabel(proxy)}
                       </span>
                     ) : (
-                      <span className="muted small">locked</span>
+                      <span className="muted small">{translate("locked")}</span>
                     )}
                   </div>
                 </div>
@@ -826,9 +745,9 @@ function SettingsModal({
                     <Icon name="chart.bar.fill" size={17} />
                   </span>
                   <span className="settings-feature-copy">
-                    <strong>Proxy usage</strong>
+                    <strong>{translate("Proxy usage")}</strong>
                     <span className="muted small">
-                      {proxy ? `${proxyUsed} / ${proxyLimit}` : "Traffic, allocation, and usage history"}
+                      {proxy ? `${proxyUsed} / ${proxyLimit}` : translate("Traffic, allocation, and usage history")}
                     </span>
                   </span>
                   {proxyPercent != null && (
@@ -841,7 +760,7 @@ function SettingsModal({
               </>
             )}
             {usageVisited && <div className="settings-proxy-usage" hidden={section !== "proxy" || !usageOpen}>
-              <button className="secondary small" onClick={() => setUsageOpen(false)}><Icon name="chevron.left" size={12} /> Proxy settings</button>
+              <button className="secondary small" onClick={() => setUsageOpen(false)}><Icon name="chevron.left" size={12} /> {translate("Proxy settings")}</button>
               <UsageView />
             </div>}
           </SettingsPanel>
@@ -883,27 +802,27 @@ function AppUpdatePrompt({
         <div className="modal-title-row">
           <Icon name="sparkles" size={18} className="warn" />
           <div>
-            <strong id="app-update-title">New Nextbrowser version available</strong>
+            <strong id="app-update-title">{translate("New Nextbrowser version available")}</strong>
             <div className="muted small">
-              {status.version ? `Version ${status.version} is ready.` : "A newer build is available."}
+              {status.version ? translate("Version %1 is ready.", status.version) : translate("A newer build is available.")}
             </div>
           </div>
         </div>
         <p className="muted">
           {manual
-            ? "Download and install the new version."
+            ? translate("Download and install the new version.")
             : downloaded
-              ? "The update is downloaded. Restart to finish installing."
+              ? translate("The update is downloaded. Restart to finish installing.")
               : downloading
-                ? "Downloading the update — you can keep working."
-                : "Update now, or keep working and install it later from Settings."}
+                ? translate("Downloading the update — you can keep working.")
+                : translate("Update now, or keep working and install it later from Settings.")}
         </p>
-        {downloading && <InstallationProgress label={`Downloading Nextbrowser ${status.percent ?? 0}%`} />}
+        {downloading && <InstallationProgress label={translate("Downloading Nextbrowser %1%", status.percent ?? 0)} />}
         {manual ? (
           <ManualReleaseDownload onOpen={onOpenRelease} version={status.version} onLater={onLater} />
         ) : (
           <div className="row settings-actions">
-            <button className="secondary" autoFocus onClick={onLater}>Later</button>
+            <button className="secondary" autoFocus onClick={onLater}>{translate("Later")}</button>
             <span className="spacer" />
             <button
               className="primary"
@@ -911,10 +830,10 @@ function AppUpdatePrompt({
               onClick={downloaded ? onInstall : onDownload}
             >
               {downloaded
-                ? "Restart and update"
+                ? translate("Restart and update")
                 : downloading
-                  ? `Downloading ${status.percent ?? 0}%`
-                  : "Download update"}
+                  ? translate("Downloading %1%", status.percent ?? 0)
+                  : translate("Download update")}
             </button>
           </div>
         )}
@@ -924,29 +843,17 @@ function AppUpdatePrompt({
 }
 
 export function App() {
-  const [theme, setTheme] = useState<Theme>(() => resolveTheme(
-    settingsStorage.getItem("nextbrowser.theme"),
-    window.matchMedia("(prefers-color-scheme: light)").matches,
-  ));
+  const [projectsDock, setProjectsDock] = useState<HTMLDivElement | null>(null);
+  const [themePreference, setThemePreference] = useState(() => readThemePreference(settingsStorage.getItem("nextbrowser.theme")));
+  const prefersLight = useSyncExternalStore(subscribeToSystemTheme, systemPrefersLight);
+  const theme = resolveTheme(themePreference, prefersLight);
+  const appearanceSettings = useAppearance(theme);
   const [uiScale, setUiScale] = useState<number>(() => {
     const saved = Number(settingsStorage.getItem("nextbrowser.uiScale"));
     return Number.isFinite(saved) && saved >= UI_SCALE_MIN && saved <= UI_SCALE_MAX ? saved : 1;
   });
-  // The floating quick-access control is a convenience on top of the real
-  // setting in Settings; once dismissed there's no reason to keep offering
-  // it back, so the choice is remembered per device like the scale itself.
-  const [uiScaleFloatingHidden, setUiScaleFloatingHidden] = useState(
-    () => settingsStorage.getItem("nextbrowser.uiScaleFloatingHidden") === "1",
-  );
-  const dismissUiScaleFloating = () => {
-    setUiScaleFloatingHidden(true);
-    settingsStorage.setItem("nextbrowser.uiScaleFloatingHidden", "1");
-  };
-  const restoreUiScaleFloating = () => {
-    setUiScaleFloatingHidden(false);
-    settingsStorage.removeItem("nextbrowser.uiScaleFloatingHidden");
-  };
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [liveControlsOpen, setLiveControlsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateStatus>({ status: "idle" });
   const [browserRuntimeUpdates, setBrowserRuntimeUpdates] = useState<BrowserRuntimeUpdateStatus>({ status: "idle", runtimes: [] });
@@ -983,12 +890,13 @@ export function App() {
   const preview = getPreviewMode();
   const checking = useStore((s) => s.checking);
   const authed = useStore((s) => s.authed);
+  const activityOwner = useStore(s => s.accountOwnerId);
   const startupPhase = useStore((s) => s.startupPhase);
   const startupLabel = startupPhase === "local"
-    ? "Loading saved projects"
+    ? translate("Loading saved projects")
     : startupPhase === "setup"
-      ? "Setting up Nextbrowser for first use"
-      : "Checking account access";
+      ? translate("Setting up Nextbrowser for first use")
+      : translate("Checking account access");
   const startupError = useStore((s) => s.startupError);
   const feedbackAvailable = authed && !checking && !startupError;
   // Background sync happens constantly and isn't something the user needs
@@ -996,7 +904,84 @@ export function App() {
   // the sign-out flow is waiting on.
   const workspaceSyncing = useStore((s) => s.loggingOut && (s.projectsSyncing || s.isRefreshing));
   const tab = useStore((s) => s.tab);
+  const utilityDialog = useStore(s => s.utilityDialog);
   const setTab = useStore((s) => s.setTab);
+  const activeWorkspaceId = useStore(s => s.activeWorkspaceId);
+  const currentMiniAppOwner = useMiniAppsOwner();
+  const miniAppOwner = authed || preview === 'main' ? currentMiniAppOwner : undefined;
+  useEffect(() => {
+    if (!window.nextbrowser) return;
+    void invoke('mini_apps_context', { owner: miniAppOwner, workspaceId: activeWorkspaceId }).catch(console.warn);
+    return window.nextbrowser.on('mini-apps:agent-open', payload => {
+      const target = payload as { owner: string; workspaceId: string; id: string };
+      if (miniAppOwner && target.owner === miniAppOwner && target.workspaceId === activeWorkspaceId) {
+        setTab('mini-apps', { owner: miniAppOwner, id: target.id });
+      }
+    });
+  }, [miniAppOwner, activeWorkspaceId, setTab]);
+  const openPermissionChat = useCallback((id: string) => {
+    const state = useStore.getState();
+    if (!state.conversations.some(conv => conv.id === id && (!conv.workspaceId || conv.workspaceId === state.activeWorkspaceId))) return;
+    setSettingsOpen(false);
+    setFeedbackOpen(false);
+    state.selectConversation(id);
+    state.setTab('chat');
+  }, []);
+  const permission = useAgentPermission(miniAppOwner, activeWorkspaceId, openPermissionChat);
+  const selectedConversation = useStore(s => s.activeConversation()?.id);
+  const liveSession = useStore(s => s.liveSession);
+  const openLiveSession = useStore(s => s.openLiveSession);
+  const showLiveOverview = useStore(s => s.showLiveOverview);
+  const liveSessions = useLiveSessions();
+  const liveKey = liveSession?.workspaceId === activeWorkspaceId && liveSessions.some(session => session.key === liveSession?.key)
+    ? liveSession?.key : undefined;
+  const focusedLive = tab === "live" && !!liveKey;
+  const liveWorkspace = tab === "live" && !!liveSession && liveSession.workspaceId === activeWorkspaceId;
+  const [hiddenBrowser, setHiddenBrowser] = useState<typeof liveSession>();
+  const browserOpen = liveWorkspace && hiddenBrowser !== liveSession;
+  const dock = useSessionDock(miniAppOwner, activeWorkspaceId, selectedConversation);
+  const { focus: liveFocus, focusPanel: focusLivePanel } = dock;
+  const { library } = useMiniAppLibrary(miniAppOwner);
+  const installed = library?.installed ?? [];
+  const panels = panelIds(dock.layout);
+  const hasSessionApps = installed.some(app => panels.includes(miniPanel(app.id)));
+  useEffect(() => {
+    if (!library) return;
+    const removed = panels.filter(panel => isMiniPanel(panel) && !library.installed.some(app => miniPanel(app.id) === panel));
+    if (removed.length) dock.remove(removed);
+  }, [library, dock.layout]);
+  function openSessionApp(id: string, edge?: Edge) {
+    if (!miniAppOwner || !activeWorkspaceId) return;
+    dock.open(id, edge);
+    if (!liveWorkspace && tab !== "automation") setTab("chat");
+  }
+  const [, refreshPanelRequest] = useState(0);
+  const pendingPanels = useRef(new Map<string, string>());
+  useEffect(() => {
+    pendingPanels.current.clear();
+  }, [miniAppOwner, activeWorkspaceId, selectedConversation]);
+  useEffect(() => window.nextbrowser?.on("mini-apps:open-panel", payload => {
+    const target = payload as { owner: string; workspaceId: string; conversationId?: string; id: string; requestId: string; edge?: Edge };
+    if (!miniAppOwner || target.owner !== miniAppOwner || target.workspaceId !== activeWorkspaceId ||
+      (target.conversationId && target.conversationId !== selectedConversation)) return;
+    pendingPanels.current.set(target.requestId, target.id);
+    refreshPanelRequest(n => n + 1);
+    setSettingsOpen(false);
+    useStore.getState().closeUtilityDialog();
+    openSessionApp(target.id, target.edge);
+  }), [miniAppOwner, activeWorkspaceId, selectedConversation, liveWorkspace, tab, dock.open]);
+  function guestReady(id: string) {
+    for (const [requestId, requested] of pendingPanels.current) if (requested === id) {
+      pendingPanels.current.delete(requestId);
+      void invoke("mini_apps_panel_ready", { owner: miniAppOwner, workspaceId: activeWorkspaceId, id, requestId }).catch(console.warn);
+    }
+  }
+  const [liveProjectsSlot, setLiveProjectsSlot] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!liveWorkspace) setHiddenBrowser(undefined);
+  }, [liveWorkspace]);
+  const automationDock = tab === "automation" && hasSessionApps;
+  const chatWorkspace = tab === "chat" || liveWorkspace || automationDock;
   const bootstrap = useStore((s) => s.bootstrap);
   const showOnboarding = useStore((s) => s.showOnboarding);
   const agentReady = useStore((s) => s.agentReady());
@@ -1017,9 +1002,6 @@ export function App() {
     if (workspaceSetupAuto === "running" || workspaceSetupAuto === "failed") return;
     void ensureDefaultWorkspaceSetup();
   }, [workspaceSetupRequired, workspaceSetupAuto, ensureDefaultWorkspaceSetup]);
-  const sidebarWidth = useStore((s) => s.sidebarWidth);
-  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
-  const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const setAppActive = useStore((s) => s.setAppActive);
   const didTrackThemeChange = useRef(false);
   const tabHistory = useRef<AppTab[]>([]);
@@ -1461,6 +1443,15 @@ export function App() {
   }, [browserRuntimeUpdates, runtimeUpdateInstall.status, runtimeUpdatePrompt, runtimeUpdatePromptDismissed, bulkUpdating]);
 
   useEffect(() => {
+    if (authed && activityOwner && !preview) return observeAccountActivity(activityOwner);
+  }, [authed, activityOwner, preview]);
+
+  useEffect(() => {
+    if (!authed || preview) return;
+    return observeDesktopActivity(() => invoke("desktop_activity"));
+  }, [authed, preview]);
+
+  useEffect(() => {
     const heartbeat = window.setInterval(() => {
       if (document.visibilityState === "visible") flushAnalyticsEngagement("heartbeat");
     }, 30_000);
@@ -1487,6 +1478,12 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => window.nextbrowser?.on("interface-zoom-shortcut", action => {
+    if (action === "reset") setUiScale(1);
+    if (action === "increase") setUiScale(value => clampUiScale(value + UI_SCALE_STEP));
+    if (action === "decrease") setUiScale(value => clampUiScale(value - UI_SCALE_STEP));
+  }), []);
+
   useEffect(() => {
     // Electron's native page zoom (Chromium's own Ctrl/Cmd+ mechanism),
     // requested through the main process — not the CSS `zoom` property,
@@ -1494,14 +1491,19 @@ export function App() {
     // window's own size and broke scrolling and fixed-position overlays
     // (like the Settings modal) at higher scales.
     void invoke("app_set_zoom_factor", { factor: uiScale }).catch(() => undefined);
+    document.documentElement.style.setProperty("--window-zoom", String(uiScale));
     settingsStorage.setItem("nextbrowser.uiScale", String(uiScale));
   }, [uiScale]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    settingsStorage.setItem("nextbrowser.theme", theme);
-    void invoke("app_set_theme", { theme }).catch(() => undefined);
+    settingsStorage.setItem("nextbrowser.theme", themePreference);
+    const palette = getComputedStyle(document.documentElement);
+    void invoke("app_set_theme", { theme, preference: themePreference, background: palette.getPropertyValue("--bg").trim(), foreground: palette.getPropertyValue("--text").trim() }).catch(() => undefined);
+  }, [theme, themePreference]);
+
+  useEffect(() => {
     if (!didTrackThemeChange.current) {
       didTrackThemeChange.current = true;
       return;
@@ -1598,7 +1600,8 @@ export function App() {
           pricing_url: "https://dashboard.nodemaven.com/pricing?tab=MONTHLY_PLANS",
         },
         showOnboarding: false,
-        ...(tabParam && PREVIEW_TABS.has(tabParam) ? { tab: tabParam as AppTab } : {}),
+        ...(tabParam && isUtilityDialogTab(tabParam) ? { tab: "chat" as const, utilityDialog: tabParam }
+          : tabParam && PREVIEW_TABS.has(tabParam) ? { tab: tabParam as AppTab } : {}),
       });
       return;
     }
@@ -1629,77 +1632,13 @@ export function App() {
     if (agentReady) setAgentGateDismissed(false);
   }, [agentReady]);
 
-  useEffect(() => {
-    const minSidebarWidth = 320;
-    const maxSidebarWidth = 520;
-    let dragging = false;
-    let startX = 0;
-    let startW = sidebarWidth;
-    let settleAnimation: Animation | undefined;
-    const rubberband = (overshoot: number, dimension: number, constant = 0.42) =>
-      (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
-    const projectedWidth = (rawWidth: number) => {
-      if (rawWidth < minSidebarWidth) return minSidebarWidth + rubberband(rawWidth - minSidebarWidth, minSidebarWidth);
-      if (rawWidth > maxSidebarWidth) return maxSidebarWidth + rubberband(rawWidth - maxSidebarWidth, maxSidebarWidth);
-      return rawWidth;
-    };
-    const onMove = (e: PointerEvent) => {
-      if (!dragging) return;
-      if (sidebarCollapsed) return;
-      setSidebarWidth(projectedWidth(startW + (e.clientX - startX)));
-    };
-    const onUp = () => {
-      if (!dragging) return;
-      dragging = false;
-      document.body.classList.remove("is-resizing-sidebar");
-      const currentWidth = useStore.getState().sidebarWidth;
-      const targetWidth = Math.min(maxSidebarWidth, Math.max(minSidebarWidth, currentWidth));
-      if (Math.abs(targetWidth - currentWidth) < 0.5) return;
-      const sidebar = document.querySelector<HTMLElement>(".sidebar");
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      settleAnimation?.cancel();
-      if (sidebar && !reduceMotion) {
-        settleAnimation = sidebar.animate(
-          [{ width: `${currentWidth}px` }, { width: `${targetWidth}px` }],
-          { duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
-        );
-      }
-      setSidebarWidth(targetWidth);
-    };
-    const handle = document.getElementById("sidebar-resize");
-    const onDown = (e: PointerEvent) => {
-      const sidebar = document.querySelector<HTMLElement>(".sidebar");
-      const liveWidth = sidebar?.getBoundingClientRect().width ?? useStore.getState().sidebarWidth;
-      settleAnimation?.cancel();
-      settleAnimation = undefined;
-      dragging = true;
-      startX = e.clientX;
-      startW = liveWidth;
-      setSidebarWidth(liveWidth);
-      document.body.classList.add("is-resizing-sidebar");
-      handle?.setPointerCapture(e.pointerId);
-      e.preventDefault();
-    };
-    handle?.addEventListener("pointerdown", onDown);
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-    return () => {
-      settleAnimation?.cancel();
-      document.body.classList.remove("is-resizing-sidebar");
-      handle?.removeEventListener("pointerdown", onDown);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-    };
-  }, [checking, sidebarCollapsed, setSidebarWidth]);
 
   const browserInstallHidden = !!browserRuntimeInstall && browserInstallHiddenKey === browserRuntimeInstallKey(browserRuntimeInstall);
   const backgroundTaskPills = (
     <>
       {runtimeUpdateInstall.status === "installing" && runtimeUpdateProgressHidden && (
         <BackgroundTaskPill
-          label={`Updating ${runtimeUpdateInstall.currentName ?? "browser toolsets"}`}
+          label={translate("Setting up %1%2", runtimeUpdateInstall.currentName ?? "browsers", runtimeUpdateInstall.percent === undefined ? "" : ` · ${runtimeUpdateInstall.percent}%`)}
           onShow={() => setRuntimeUpdateProgressHidden(false)}
         />
       )}
@@ -1716,14 +1655,23 @@ export function App() {
     trackEvent("feedback_submitted", { rating });
   }} /> : null;
 
+  const titlebarActions = <>
+    {permission && (tab !== 'chat' || selectedConversation !== permission.conversationId || settingsOpen || utilityDialog || feedbackOpen) &&
+      <TitlebarActions placement="workspace"><Button onClick={() => openPermissionChat(permission.conversationId)}>{translate("Review agent request")}</Button></TitlebarActions>}
+    {feedbackAvailable && <TitlebarActions placement="workspace"><FeedbackButton onClick={() => setFeedbackOpen(true)} /></TitlebarActions>}
+    <TitlebarActions>
+      <CommunityControls />
+      <ThemeToggle theme={theme} onToggle={() => setThemePreference(theme === "dark" ? "light" : "dark")} />
+    </TitlebarActions>
+  </>;
+
   if ((checking || startupError) && preview !== "login" && preview !== "main" && preview !== "onboarding") {
     return (
       <>
+        {titlebarActions}
         <div className="floating-controls">
           {backgroundTaskPills}
-          <SocialButtons />
           <SettingsButton onClick={openSettingsFromButton} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
-          <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
         </div>
         {settingsOpen && (
           <SettingsModal
@@ -1745,10 +1693,12 @@ export function App() {
             onInstallUpdate={installAppUpdate}
             onOpenRelease={openLatestRelease}
             onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
+            themePreference={themePreference}
+            activeTheme={theme}
+            appearanceSettings={appearanceSettings}
+            onThemeChange={setThemePreference}
             uiScale={uiScale}
             onUiScaleChange={setUiScale}
-            uiScaleFloatingHidden={uiScaleFloatingHidden}
-            onRestoreFloatingScale={restoreUiScaleFloating}
           />
         )}
         <div className="splash">
@@ -1757,13 +1707,13 @@ export function App() {
           {startupError ? (
             <div className="startup-recovery" role="alert">
               <p className="muted small">{startupError}</p>
-              <button className="primary" onClick={() => window.location.reload()}>Restart check</button>
+              <button className="primary" onClick={() => window.location.reload()}>{translate("Restart check")}</button>
             </div>
           ) : (
             <>
               <InstallationSpinner />
               <div className="muted small">{startupLabel}…</div>
-              {startupPhase === "setup" && <div className="muted small">Nextbrowser is installing its command-line tool. This can take a few minutes on a slow connection.</div>}
+              {startupPhase === "setup" && <div className="muted small">{translate("Nextbrowser is installing its command-line tool. This can take a few minutes on a slow connection.")}</div>}
               <div className="startup-progress"><InstallationProgress label={startupLabel} /></div>
             </>
           )}
@@ -1792,80 +1742,57 @@ export function App() {
   }
 
   return (
+    <SessionMiniApps.Provider value={miniAppOwner && activeWorkspaceId ? { apps: installed, open: openSessionApp } : null}>
     <div className="app">
+      {titlebarActions}
+      {!chatWorkspace && <TitlebarActions>{backgroundTaskPills}</TitlebarActions>}
       <aside
-        className={"sidebar thin-material" + (sidebarCollapsed ? " sidebar-collapsed" : "")}
-        style={{ width: sidebarCollapsed ? 68 : sidebarWidth }}
+        id="app-sidebar"
+        className={`${glassSurfaceClassName} sidebar sidebar-collapsed`}
+        style={{ width: "var(--sidebar-rail-width)" }}
       >
         <Sidebar
-          onOpenAgentSettings={() => openSettings("agent")}
-          onHome={() => setTab("chat")}
-          footerAccessory={!uiScaleFloatingHidden && !sidebarCollapsed
-            ? <UIScaleControl inline value={uiScale} onChange={setUiScale} onDismiss={dismissUiScaleFloating} />
-            : undefined}
+          projectsDock={projectsDock}
+          liveProjects={liveWorkspace ? { slot: liveProjectsSlot, showChat: () => focusLivePanel("chat") } : undefined}
+          onOpenSettings={openSettingsFromButton}
+          liveDestination={<LiveSessionsPopover key={activeWorkspaceId} sessions={liveSessions} selected={tab === "live"}
+            onOverview={showLiveOverview} onOpen={openLiveSession} />}
+          settingsAttention={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)}
         />
       </aside>
-      {!sidebarCollapsed && <div id="sidebar-resize" className="resize-handle" title="Resize sidebar" aria-label="Resize sidebar" />}
-      <main className="content">
-        <nav className="tabbar">
-          {!isPrimaryAppTab(tab) && backTarget && (
-            <button
-              className="tabbar-back"
-              type="button"
-              onClick={navigateBack}
-              title={`Back to ${appTabLabel(backTarget)} · Esc`}
-              aria-label={`Back to ${appTabLabel(backTarget)}`}
-            >
-              <Icon name="chevron.left" size={18} strokeWidth={2.25} />
-            </button>
-          )}
-          <div className="tabbar-group" role="tablist" aria-label="Main views">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                className={"tab-hit" + (tab === t.id ? " tab-hit-active" : "")}
-                onClick={() => setTab(t.id)}
-                aria-label={`Open ${t.label}`}
-              >
-                <span className={"tab-pill" + (tab === t.id ? " tab-pill-active" : "")}>
-                  {t.icon && <Icon name={t.icon} size={16} strokeWidth={2.25} />}
-                  {t.label}
-                </span>
-              </button>
-            ))}
-          </div>
-          <span className="tabbar-spacer" />
-          <div className="tabbar-controls">
-            {backgroundTaskPills}
-            {feedbackAvailable && <FeedbackButton onClick={() => setFeedbackOpen(true)} />}
-            <SocialButtons />
-            <SettingsButton onClick={openSettingsFromButton} hasUpdate={updateAvailable(appUpdate) || browserRuntimeUpdateAvailable(browserRuntimeUpdates)} />
-            <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
-          </div>
-        </nav>
-        <hr className="divider" />
-        {workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
-          <Spinner size={12} /> Syncing workspace…
-        </div>}
+      <div ref={setProjectsDock} className="projects-dock-slot" />
+      <main className={"content" + (chatWorkspace ? " content-chat" : "")}>
+        {tab !== "live" && workspaceSyncing && <div className="workspace-sync-status muted small" role="status">
+          <Spinner size={12} /> {translate("Syncing workspace…")}</div>}
         <div className={"tab-content" + (tab === "skills" ? " tab-content-bleed" : "")}>
-          <div className={"persistent-tab-panel" + (tab === "chat" ? "" : " is-hidden")}>
-            <ChatView />
-          </div>
+          <ChatLiveWorkspace visible={chatWorkspace} live={liveWorkspace} browserOpen={browserOpen}
+            focus={liveFocus} onFocusPanel={focusLivePanel} projectsRef={setLiveProjectsSlot}
+            layout={dock.layout} setLayout={dock.setLayout} owner={miniAppOwner} apps={installed}
+            onCloseApp={panel => dock.remove([panel])} onGuestReady={guestReady}
+            onToggle={() => {
+              if (browserOpen) setLiveControlsOpen(false);
+              setHiddenBrowser(browserOpen ? liveSession : undefined);
+            }}
+            chat={automationDock ? <AutomationStudio /> : <ChatView permission={permission} headerAccessory={backgroundTaskPills} showSessionNavigation={tab === "chat" && !hasSessionApps && !settingsOpen} />}>
+            {liveWorkspace && !focusedLive && <LiveSessionsGrid key={activeWorkspaceId} sessions={liveSessions} onOpen={openLiveSession} />}
+            <div className={"persistent-tab-panel" + (focusedLive ? "" : " is-hidden")}>
+              <LiveView active={focusedLive} requestedKey={liveKey ?? ""} profileOptions={liveSessions}
+                controlsOpen={liveControlsOpen} onControlsChange={setLiveControlsOpen} onOverview={showLiveOverview} />
+            </div>
+          </ChatLiveWorkspace>
           {tab === "skills" && <SkillsView onOpenAgentSettings={() => openSettings("agent")} />}
-          {tab === "automation" && <AutomationStudio />}
-          {tab === "connectors" && <ConnectorsView />}
-          <div className={"persistent-tab-panel" + (tab === "live" ? "" : " is-hidden")}>
-            <LiveView active={tab === "live"} />
-          </div>
+          {tab === "mini-apps" && <MiniAppsPage />}
+          {tab === "automation" && !automationDock && <>
+            {!settingsOpen && !utilityDialog && <MainViewNavigation />}
+            <AutomationStudio />
+          </>}
+          {tab === "live" && !liveWorkspace && <LiveSessionsGrid key={activeWorkspaceId} sessions={liveSessions} onOpen={openLiveSession} />}
+          {tab === "account" && <AccountProfileView onDevices={() => openSettings("devices")} />}
           {tab === "usage" && <UsageView />}
           {tab === "guide" && <GuideView onOpenAgentSettings={() => openSettings("agent")} />}
-          {tab === "scheduled" && (
-            <div className="page scheduled-page">
-              <ScheduledRunsPanel asPage />
-            </div>
-          )}
         </div>
       </main>
+      <UtilityDialogs />
       {settingsOpen && (
         <SettingsModal
           onClose={closeSettings}
@@ -1886,10 +1813,12 @@ export function App() {
           onInstallUpdate={installAppUpdate}
           onOpenRelease={openLatestRelease}
           onRequestBrowserRuntimeUpdate={requestBrowserRuntimeUpdate}
+          themePreference={themePreference}
+          activeTheme={theme}
+          appearanceSettings={appearanceSettings}
+          onThemeChange={setThemePreference}
           uiScale={uiScale}
           onUiScaleChange={setUiScale}
-          uiScaleFloatingHidden={uiScaleFloatingHidden}
-          onRestoreFloatingScale={restoreUiScaleFloating}
         />
       )}
       {updateAvailable(appUpdate) && appUpdate.version !== updatePromptDismissedVersion && !settingsOpen && (
@@ -1935,8 +1864,6 @@ export function App() {
       )}
       {unexpectedError && <GlobalErrorNotice error={unexpectedError} onClose={() => setUnexpectedError(undefined)} />}
       {feedbackModal}
-      {/* The control lives in the sidebar footer. A floating copy over the collapsed rail covered the agent
-          button (and the composer when moved right), so a collapsed sidebar shows none; Settings keeps it. */}
-    </div>
+    </div></SessionMiniApps.Provider>
   );
 }

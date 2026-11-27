@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 export interface PersonalProxyTestState {
   status: "testing" | "ok" | "fail";
   detail: string;
@@ -10,7 +11,7 @@ export function PersonalProxyTestStatus({ test }: { test?: PersonalProxyTestStat
     return <p className="personal-proxy-test-ok" role="status">{test.detail}</p>;
   }
   if (test?.status === "fail") {
-    return <p className="personal-proxy-test-error" role="alert">{test.detail} <span>Check the proxy details, then press Test to retry.</span></p>;
+    return <p className="personal-proxy-test-error" role="alert">{test.detail} <span>{translate("Check the proxy details, then press Test to retry.")}</span></p>;
   }
   return null;
 }

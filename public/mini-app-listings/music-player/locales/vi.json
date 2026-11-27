@@ -1,0 +1,13 @@
+{
+  "description": "Điều khiển nhạc trong bảng chat.",
+  "useCases": [
+    "Phát, tạm dừng và chuyển bài mà không rời khỏi chat.",
+    "Thêm nhiều tài khoản nhạc và chuyển đổi giữa chúng."
+  ],
+  "requirements": "Đăng nhập trên trang của dịch vụ nhạc. Điều khiển hoạt động khi cửa sổ trình phát đang mở.",
+  "example": "Đang phát bài gì? Chuyển bài tiếp.",
+  "screenshots": {
+    "player.png": "Trình phát với tài khoản mẫu",
+    "account.png": "Thêm tài khoản nhạc"
+  }
+}

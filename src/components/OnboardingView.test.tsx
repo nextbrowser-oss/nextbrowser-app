@@ -232,7 +232,7 @@ describe("agent onboarding step", () => {
     expect(html).toContain("Follow the run");
     expect(html).toContain("Switch tabs");
     expect(html).toContain("Take control");
-    expect(html).toContain("Start a profile to use Live Streaming");
+    expect(html).toContain("Start a profile to use Processes");
     expect(html).toContain("Set up profile");
     expect(html).not.toContain("Read streamed output");
     expect(html).not.toContain(">Sidebar<");
@@ -247,9 +247,9 @@ describe("agent onboarding step", () => {
 
     const html = renderToStaticMarkup(<OnboardingView />);
 
-    expect(html).toContain("Live Streaming is ready");
-    expect(html).toContain("Open Live");
-    expect(html.match(/Open Live/g)).toHaveLength(1);
+    expect(html).toContain("Processes is ready");
+    expect(html).toContain("Open Processes");
+    expect(html.match(/Open Processes/g)).toHaveLength(1);
   });
 
   it("offers to start an existing profile before opening Live", () => {

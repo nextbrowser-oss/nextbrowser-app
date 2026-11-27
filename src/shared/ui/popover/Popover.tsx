@@ -1,0 +1,122 @@
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode, type Ref, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { tooltipPosition, type TooltipSide } from "../tooltip";
+import { glassSurfaceClassName } from "../glass-surface";
+import "./popover.css";
+
+type TriggerProps = ButtonHTMLAttributes<HTMLButtonElement> & { ref: Ref<HTMLButtonElement> };
+
+/** Non-modal anchored surface. The caller owns content, state and product actions. */
+export function Popover({ label, open, onOpenChange, trigger, children, side = "bottom", align = "center", boundaryRef, anchorElement, openOnHover = false, dismissOnOutside = true, className = "" }: {
+  label: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  trigger: (props: TriggerProps) => ReactNode;
+  children: ReactNode;
+  side?: TooltipSide;
+  align?: "start" | "center" | "end";
+  boundaryRef?: RefObject<HTMLElement>;
+  /** An existing focusable element, for context menus opened outside their trigger. */
+  anchorElement?: HTMLElement | null;
+  openOnHover?: boolean;
+  dismissOnOutside?: boolean;
+  className?: string;
+}) {
+  const anchor = useRef<HTMLButtonElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
+  const id = useId();
+  const pointerOpened = useRef(false);
+  const pinned = useRef(false);
+  const changeOpen = useRef(onOpenChange);
+  useLayoutEffect(() => { changeOpen.current = onOpenChange; }, [onOpenChange]);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const cancelLeave = () => { clearTimeout(leaveTimer.current); };
+  const enter = () => {
+    cancelLeave();
+    if (!open) { pointerOpened.current = true; pinned.current = false; onOpenChange(true); }
+  };
+  const leave = () => {
+    cancelLeave();
+    if (!pinned.current) leaveTimer.current = setTimeout(() => {
+      if (!surface.current?.contains(document.activeElement)) onOpenChange(false);
+    }, 180);
+  };
+  useEffect(() => () => clearTimeout(leaveTimer.current), []);
+  useEffect(() => { if (!open) { clearTimeout(leaveTimer.current); pinned.current = false; pointerOpened.current = false; } }, [open]);
+  const [position, setPosition] = useState<{ left: number; top: number; maxWidth: number }>();
+  useLayoutEffect(() => {
+    if (!open) return;
+    let frame: number | undefined;
+    const measure = () => {
+      const element = anchorElement ?? anchor.current;
+      if (!element || !surface.current) return;
+      const trigger = element.getBoundingClientRect(), popup = surface.current.getBoundingClientRect();
+      const bounds = boundaryRef?.current?.getBoundingClientRect();
+      const left = Math.max(8, (bounds?.left ?? 0) + 8), right = Math.min(innerWidth - 8, (bounds?.right ?? innerWidth) - 8);
+      const next = tooltipPosition(trigger, popup, { width: innerWidth, height: innerHeight }, side);
+      const vertical = next.side === "top" || next.side === "bottom";
+      const x = vertical && align === "start" ? trigger.left : vertical && align === "end" ? trigger.right - popup.width : next.left;
+      const y = !vertical && align === "start" ? trigger.top : !vertical && align === "end" ? trigger.bottom - popup.height : next.top;
+      setPosition({ left: Math.max(left, Math.min(x, right - Math.min(popup.width, right - left))), top: Math.max(8, Math.min(y, innerHeight - popup.height - 8)), maxWidth: Math.max(0, right - left) });
+    };
+    measure();
+    const schedule = () => { if (frame === undefined) frame = requestAnimationFrame(() => { frame = undefined; measure(); }); };
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);
+    if (surface.current) observer?.observe(surface.current);
+    const observedAnchor = anchorElement ?? anchor.current;
+    if (observedAnchor) observer?.observe(observedAnchor);
+    if (boundaryRef?.current) observer?.observe(boundaryRef.current);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    return () => { observer?.disconnect(); if (frame !== undefined) cancelAnimationFrame(frame); window.removeEventListener("resize", schedule); window.removeEventListener("scroll", schedule, true); };
+  }, [open, side, align, boundaryRef, anchorElement]);
+  useEffect(() => {
+    if (!open) return;
+    const popup = surface.current;
+    const button = anchorElement ?? anchor.current;
+    if (!pointerOpened.current) (popup?.querySelector<HTMLElement>("[data-autofocus]") ?? popup?.querySelector<HTMLElement>("input:not(:disabled), textarea:not(:disabled), button:not(:disabled), [tabindex='0']") ?? popup)?.focus();
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !popup?.contains(event.target) && !button?.contains(event.target)) changeOpen.current(false);
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      const modal = [...document.querySelectorAll('[aria-modal="true"]')].at(-1);
+      if (modal && !modal.contains(button)) return;
+      // The expanded inline select owns the first Escape; the next dismisses us.
+      if (event.target instanceof Element && event.target.closest('[role="combobox"][aria-expanded="true"]')) return;
+      event.preventDefault(); event.stopPropagation(); changeOpen.current(false);
+    };
+    const focus = (event: FocusEvent) => {
+      if (event.target instanceof Node && !popup?.contains(event.target) && !button?.contains(event.target)) changeOpen.current(false);
+    };
+    if (dismissOnOutside) document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", key, true);
+    if (dismissOnOutside) document.addEventListener("focusin", focus);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("keydown", key, true);
+      document.removeEventListener("focusin", focus);
+      if (popup?.contains(document.activeElement) || document.activeElement === document.body) button?.focus();
+    };
+  }, [open, dismissOnOutside, anchorElement]);
+  return <>
+    {trigger({ ref: anchor, type: "button", "aria-haspopup": "dialog", "aria-expanded": open, "aria-controls": open ? id : undefined,
+      onPointerEnter: openOnHover ? event => { if (event.pointerType !== "touch") enter(); } : undefined,
+      onPointerLeave: openOnHover ? leave : undefined,
+      onKeyDown: event => {
+        if (event.key === "ArrowDown" || (side === "right" && event.key === "ArrowRight")) {
+          event.preventDefault(); cancelLeave(); pinned.current = true; pointerOpened.current = false;
+          if (!open) onOpenChange(true); else surface.current?.querySelector<HTMLElement>("button, input, [tabindex='0']")?.focus();
+        }
+      },
+      onClick: () => {
+        cancelLeave();
+        if (openOnHover && open && pointerOpened.current) { pointerOpened.current = false; pinned.current = true; return; }
+        pointerOpened.current = false; pinned.current = !open; onOpenChange(!open);
+      } })}
+    {open && createPortal(<div ref={surface} id={id} role="dialog" aria-label={label} tabIndex={-1}
+      onDragStartCapture={openOnHover ? () => { cancelLeave(); pinned.current = true; } : undefined}
+      onPointerEnter={openOnHover ? cancelLeave : undefined} onPointerLeave={openOnHover ? leave : undefined}
+      className={`${glassSurfaceClassName} shared-popover ${className}`.trim()} style={{ left: position?.left ?? 0, top: position?.top ?? 0, maxWidth: position?.maxWidth, visibility: position ? "visible" : "hidden" }}>{children}</div>, document.body)}
+  </>;
+}

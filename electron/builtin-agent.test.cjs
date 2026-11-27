@@ -15,7 +15,8 @@ const {
   testProvider,
 } = require("./builtin-agent-providers.cjs");
 const { BUILTIN_AGENT_TOOLS, coerceArguments, createMCPToolset, selectTools, toOpenAIParameters, toolResultForModel } = require("./builtin-agent-tools.cjs");
-const { fitContext, messageText, parseToolCalls } = require("./builtin-agent.cjs");
+const { fitContext, messageText, parseToolCalls, runBuiltinAgent } = require("./builtin-agent.cjs");
+const { createClickProgress } = require("./browser-click-progress.cjs");
 const { parseBuiltinAgentSettings, runBuiltinAgentTurn } = require("./builtin-agent-run.cjs");
 const { describeBuiltinAgentResult } = require("./agent-failure-report.cjs");
 
@@ -86,7 +87,7 @@ const MCP_TOOLS = [
   { name: "evaluate", description: "Eval.", inputSchema: { type: "object", properties: { expression: { type: "string" } }, additionalProperties: false } },
 ];
 
-function fakeMCP(handler = () => ({ content: [{ type: "text", text: "ok" }] })) {
+function fakeMCP(handler = () => ({ content: [{ type: "text", text: "ok" }] }), tools = MCP_TOOLS) {
   const calls = [];
   const spawned = [];
   const children = [];
@@ -104,7 +105,7 @@ function fakeMCP(handler = () => ({ content: [{ type: "text", text: "ok" }] })) 
           const answer = message.method === "initialize"
             ? { protocolVersion: "2025-11-25", capabilities: {} }
             : message.method === "tools/list"
-              ? { tools: MCP_TOOLS }
+              ? { tools }
               : handler(message.params.name, message.params.arguments);
           Promise.resolve(answer).then((result) => {
             if (result === undefined) return; // never answers
@@ -144,6 +145,173 @@ function turn(provider, mcp, overrides = {}) {
 }
 
 // ---- The loop ----------------------------------------------------------------
+
+test("a status question about MCP after a paused search never executes the older search", async () => {
+  const history = [
+    { role: "user", content: "Найди билеты" },
+    { role: "assistant", content: "Поиск остановлен." },
+    { role: "user", content: "Ты можешь сам себе MCP поставить?" },
+    { role: "assistant", content: "Посмотри подключения MCP. Если хочешь, могу вернуться к билетам." },
+  ];
+  const provider = await fakeProvider(() => reply({ content: "Ищу билеты.", tool_calls: [toolCall("open", { url: "https://example.com" })] }));
+  const mcp = fakeMCP();
+  try {
+    const result = await turn(provider, mcp, { prompt: "Workspace context", chatTurn: { request: "а теперь ?", history },
+      userMcpServers: [{ name: "Calendar", env: { TOKEN: "must-stay-local" } }], onReport: () => {}, useHarness2: true }).promise;
+    assert.equal(result.status, "completed");
+    assert.equal(result.stdout, "Что именно проверить сейчас?");
+    assert.equal(provider.requests.length, 1);
+    assert.equal(mcp.spawned.length, 0);
+    assert.deepEqual(mcp.toolCalls(), []);
+    assert.ok(provider.requests.every(({ body }) => !body.tools));
+    const messages = provider.requests[0].body.messages;
+    assert.deepEqual(messages.slice(1, -1), history);
+    assert.equal(messages.at(-1).role, "user");
+    assert.match(messages.at(-1).content, /Calendar[\s\S]*а теперь \?$/);
+    assert.ok(!JSON.stringify(messages).includes("must-stay-local"));
+  } finally { await provider.close(); }
+});
+
+test("a bare follow-up checks the current workspace policy without exposing executable tools", async () => {
+  const history = [
+    { role: "user", content: "Можешь создать папку на рабочем столе?" },
+    { role: "assistant", content: "Доступа нет." },
+    { role: "user", content: "Уверен?" },
+    { role: "assistant", content: "Да." },
+  ];
+  for (const terminal of ["ask", "trusted", "off", null]) {
+    const workspace = fakeMCP(() => terminal === null
+      ? { isError: true, content: [{ type: "text", text: "internal-fixture-detail" }] }
+      : { content: [{ type: "text", text: JSON.stringify({ terminal, shells: ["powershell"], folder: "private-path-fixture" }) }] },
+    [{ name: "get_permissions", inputSchema: { type: "object", properties: {} } }]);
+    const browser = fakeMCP();
+    const provider = await fakeProvider(body => {
+      assert.equal(body.tools, undefined);
+      assert.deepEqual(body.messages.slice(1, -1), history);
+      const context = body.messages.at(-1).content;
+      if (terminal === null) assert.match(context, /could not be verified/);
+      else assert.ok(context.includes('"terminal":"' + terminal + '"'));
+      assert.doesNotMatch(context, /private-path-fixture|internal-fixture-detail/);
+      return reply({ content: "Ответ о правах." });
+    });
+    try {
+      const result = await turn(provider, browser, { chatTurn: { request: "а теперь ?", history }, onReport: () => {},
+        userMcpServers: [{ id: "stock", command: "/fake/workspace", args: [] }], userMcpDeps: { spawnImpl: workspace.spawnImpl },
+      }).promise;
+      assert.equal(result.stdout, "Ответ о правах.");
+      assert.deepEqual(workspace.toolCalls(), [{ name: "get_permissions", arguments: {} }]);
+      assert.equal(browser.spawned.length, 0);
+    } finally { await provider.close(); }
+  }
+});
+
+test("an explanation about a different topic can finish at the planning step without a browser call", async () => {
+  const provider = await fakeProvider(() => reply({ content: "MCP connects an agent to tools." }));
+  const mcp = fakeMCP();
+  try {
+    const request = "What does MCP do?";
+    const result = await turn(provider, mcp, { prompt: request, chatTurn: { request, history: [
+      { role: "user", content: "Find flights" }, { role: "assistant", content: "The search paused." },
+    ] }, onReport: () => {} }).promise;
+    assert.equal(result.stdout, "MCP connects an agent to tools.");
+    assert.equal(provider.requests.length, 1);
+    assert.deepEqual(mcp.toolCalls(), []);
+  } finally { await provider.close(); }
+});
+
+test("an explicit action after changing topics reaches the planner and the tools", async () => {
+  const history = [{ role: "user", content: "Расскажи про MCP" }, { role: "assistant", content: "Это протокол." }];
+  const request = "А теперь открой example.com";
+  const provider = await fakeProvider((_body, _req, index) => {
+    if (!index) return reply({ content: "PLAN: Открыть страницу" });
+    if (index === 1) return reply({ tool_calls: [toolCall("open", { url: "https://example.com" })] });
+    return reply({ content: "Открыто." });
+  });
+  const mcp = fakeMCP();
+  try {
+    const result = await turn(provider, mcp, { prompt: request, chatTurn: { request, history }, onReport: () => {} }).promise;
+    assert.equal(result.status, "completed");
+    assert.deepEqual(provider.requests[0].body.messages.slice(1), [...history, { role: "user", content: request }]);
+    assert.deepEqual(provider.requests[1].body.messages.slice(1, 4), [...history, { role: "user", content: request }]);
+    assert.deepEqual(mcp.toolCalls().map(call => call.name), ["open"]);
+  } finally { await provider.close(); }
+});
+
+test("a chat rechecks Desktop access through the current workspace tools after an earlier refusal", async () => {
+  const history = [
+    { role: "user", content: "Можешь создать папку на рабочем столе?" },
+    { role: "assistant", content: "У меня нет доступа к рабочему столу." },
+  ];
+  const request = "Точно? Перепроверь.";
+  const workspace = fakeMCP(() => ({ content: [{ type: "text", text: '{"terminal":"ask","shells":["powershell"]}' }] }), [
+    { name: "get_permissions", inputSchema: { type: "object", properties: {} } },
+    { name: "run_command", inputSchema: { type: "object", properties: { command: { type: "string" } } } },
+  ]);
+  const provider = await fakeProvider((body, _req, index) => {
+    if (!index) {
+      assert.ok(body.tools.some(tool => tool.function.name === "workspace_get_permissions"));
+      assert.match(body.messages[0].content, /workspace_run_command/);
+      assert.deepEqual(body.messages.slice(1), [...history, { role: "user", content: request }]);
+      return reply({ content: "PLAN: Проверить разрешения", tool_calls: [toolCall("workspace_get_permissions", {})] });
+    }
+    assert.match(body.messages.at(-1).content, /powershell/);
+    return reply({ content: "Да, с твоего разрешения. Как назвать папку?" });
+  });
+  try {
+    const reports = [];
+    const result = await turn(provider, fakeMCP(), { prompt: request, chatTurn: { request, history }, onReport: report => reports.push(report),
+      userMcpServers: [{ id: "stock", name: "Workspace tools", command: "/fake/workspace", args: [] }],
+      userMcpDeps: { spawnImpl: workspace.spawnImpl }, useHarness2: true }).promise;
+    assert.equal(result.stdout, "Да, с твоего разрешения. Как назвать папку?");
+    assert.deepEqual(workspace.toolCalls().map(call => call.name), ["get_permissions"]);
+    assert.deepEqual(reports.at(-1).plan, ["Проверить разрешения"]);
+  } finally { await provider.close(); }
+});
+
+test("a missing managed OpenRouter route reports a server error for catalog and chat", async () => {
+  const client = createProviderClient({
+    provider: "openrouter",
+    baseURL: "https://api.example.test/v1/agent/openrouter",
+    fetchImpl: async () => Response.json({ code: "not_found" }, { status: 404 }),
+  });
+  for (const request of [() => client.listModels(), () => client.chat({ model: OPENROUTER_FREE_ROUTER })]) {
+    await assert.rejects(request, { code: "server", status: 404, message: "Free OpenRouter models are not available on this Nextbrowser server yet." });
+  }
+});
+
+test("OpenRouter chat uses the Nextbrowser backend and its runtime token", async (t) => {
+  const backend = await fakeProvider(() => reply({ content: "OK" }));
+  t.after(() => backend.close());
+  const endpoint = backend.baseURL + "/agent/openrouter";
+  const model = "vendor/model:free";
+  const { promise } = turn(backend, null, {
+    settings: { provider: "openrouter", model, baseURL: "https://ignored.test" },
+    managedProviderURL: endpoint,
+    loadKey: async () => "nextbrowser-runtime-token",
+    plain: true,
+  });
+  assert.equal((await promise).status, "completed");
+  assert.equal(backend.requests.length, 1);
+  assert.equal(backend.requests[0].url, "/v1/agent/openrouter/chat/completions");
+  assert.equal(backend.requests[0].headers.authorization, "Bearer nextbrowser-runtime-token");
+  assert.equal(backend.requests[0].body.model, model);
+});
+
+test("a fresh account uses managed OpenRouter without saving a personal key or choosing a model", async (t) => {
+  const backend = await fakeProvider(() => reply({content:"OK"}));
+  t.after(() => backend.close());
+  const options = { settings:{}, plain:true, managedProviderURL:backend.baseURL + "/agent/openrouter" };
+  const signedOut = await turn(backend, null, {...options, loadKey:async () => ""}).promise;
+  assert.match(signedOut.reason, /Sign in to Nextbrowser/);
+  assert.equal(backend.requests.length, 0);
+  const signedIn = await turn(backend, null, {...options, loadKey:async () => "fixture-account-token"}).promise;
+  assert.equal(signedIn.status, "completed");
+  assert.equal(backend.requests[0].url, "/v1/agent/openrouter/chat/completions");
+  assert.equal(backend.requests[0].headers.authorization, "Bearer fixture-account-token");
+  assert.equal(backend.requests[0].body.model, "nvidia/nemotron-3.5-super-vl:free");
+  assert.equal(resolveProviderSettings({provider:"nvidia"}, backend.baseURL + "/agent/nvidia").model, "nvidia/nemotron-3.5-super-vl-120b-a12b");
+  assert.throws(() => resolveProviderSettings({provider:"nvidia"}, ""));
+});
 
 test("a two-step tool loop ends in the model's final answer", async () => {
   const provider = await fakeProvider((body, _request, index) => {
@@ -245,11 +413,221 @@ test("the run stops after its step limit", async () => {
     assert.equal(result.status, "max_steps");
     assert.equal(result.code, 1);
     assert.equal(provider.requests.length, 3);
-    assert.match(result.reason, /stopped after 3 steps without finishing/);
+    assert.match(result.reason, /paused after 3 steps/);
     assert.deepEqual(result.failure, { code: "max_steps", expected: true });
   } finally {
     await provider.close();
   }
+});
+
+test("plans before acting and pauses a stale-element loop with confirmed partial results", async () => {
+  const reports = [];
+  const provider = await fakeProvider((body, _req, index) => {
+    if (!index) { assert.ok(body.tools.length); return reply({content:"PLAN: Check the route\nCompare verified fares"}); }
+    if (!body.tools) return reply({content:"No fare was verified. The calendar could not be selected."});
+    return reply({tool_calls:[toolCall("click", {element_id:709})]});
+  });
+  const mcp = fakeMCP((name) => {
+    assert.equal(reports.at(-1).plan.length, 2);
+    if (name === "state") return {content:[{type:"text",text:"Calendar unavailable"}]};
+    return {isError:true, content:[{type:"text", text:"stale element id 709: no longer visible"}]};
+  });
+  try {
+    const result = await turn(provider, mcp, {onReport: report => reports.push(report)}).promise;
+    assert.deepEqual(mcp.toolCalls().map(call => call.name), ["click", "state", "click"]);
+    assert.equal(result.failure.code, "no_progress");
+    assert.match(result.stdout, /No fare was verified/);
+    assert.ok(result.steps < 10);
+    assert.ok(reports.some(r => r.progress.includes("repeating")));
+  } finally { await provider.close(); }
+});
+
+test("Harness² compares two strategies for a blocked action and feeds the proposed recovery to the live turn", async () => {
+  for (const enabled of [true, false]) {
+    const probes = [];
+    let proposals = 0, compositions = 0;
+    const provider = await fakeProvider(body => {
+      const instruction = body.messages[0].content;
+      if (instruction.startsWith("Propose two")) {
+        proposals++;
+        assert.equal(body.tools, undefined);
+        return reply({content: "Read the status banner\nCheck a different date"});
+      }
+      if (instruction.startsWith("Probe this")) {
+        assert.equal(body.tools, undefined);
+        const probe = JSON.parse(body.messages[1].content);
+        probes.push(probe);
+        return reply({content: "Evidence for " + probe.strategy});
+      }
+      if (instruction.startsWith("Compare the two")) {
+        compositions++;
+        assert.equal(body.tools, undefined);
+        assert.equal(JSON.parse(body.messages[1].content).probes.length, 2);
+        return reply({content: "Read the status banner before selecting a new date."});
+      }
+      if (body.messages.some(message => message.role === "tool" && message.content.includes("Proposed recovery"))) {
+        return reply({content: "The observed status banner says booking is closed."});
+      }
+      return reply({tool_calls:[toolCall("click", {element_id:709})]});
+    });
+    const mcp = fakeMCP(name => name === "state" ? {content:[{type:"text",text:"Status banner: booking closed"}]} :
+      {isError:true,content:[{type:"text",text:"stale element id 709"}]});
+    try {
+      const result = await turn(provider, mcp, {useHarness2:enabled}).promise;
+      assert.equal(result.status, enabled ? "completed" : "no_progress");
+      assert.equal(proposals, enabled ? 1 : 0);
+      assert.equal(compositions, proposals);
+      assert.equal(probes.length, proposals * 2);
+      if (enabled) {
+        assert.notEqual(probes[0].strategy, probes[1].strategy);
+        assert.deepEqual(probes[0].observations, probes[1].observations);
+        assert.match(probes[0].observations.join(" "), /booking closed/);
+      }
+      assert.deepEqual(mcp.toolCalls().map(call => call.name), ["click", "state", "click"]);
+    } finally { await provider.close(); }
+  }
+});
+
+test("Harness² is callable twice from planning without any browser action or failure", async () => {
+  for (const enabled of [true,false]) {
+    let requests=0, proposals=0, probes=0, compositions=0;
+    const provider = await fakeProvider(body => {
+      const instruction = body.messages[0].content;
+      if (instruction.startsWith("Propose two")) {
+        proposals++;
+        assert.deepEqual(JSON.parse(body.messages[1].content).observations,["Flexible dates"]);
+        return reply({content:"Search direct flights\nCompare dates"});
+      }
+      if (instruction.startsWith("Probe this")) { probes++; return reply({content:"This search verifies the chosen dates."}); }
+      if (instruction.startsWith("Compare the two")) { compositions++; return reply({content:"Check direct availability first."}); }
+      assert.equal(body.tools.some(t=>t.function.name==="harness2_compare"),enabled);
+      if (enabled && requests++ < 2) {
+        return reply({tool_calls:[toolCall("harness2_compare",{goal:requests===1?"Choose an initial search":"Choose dates for a second search",evidence:"Flexible dates"})]});
+      }
+      if (enabled) assert.equal(JSON.parse(body.messages.at(-1).content).proposedNextStep,"Check direct availability first.");
+      return reply({content:"Ready to search"});
+    });
+    const mcp = fakeMCP();
+    try {
+      const result = await turn(provider,mcp,{useHarness2:enabled}).promise;
+      assert.equal(result.status,"completed");
+      assert.deepEqual([proposals,probes,compositions],enabled ? [2,4,2] : [0,0,0]);
+      assert.deepEqual(mcp.toolCalls(),[]);
+    } finally { await provider.close(); }
+  }
+});
+
+test("stops scrolling an unchanged page but continues through genuinely new rows", async () => {
+  for (const changing of [false, true]) {
+    let modelCalls = 0, scrolls = 0;
+    const result = await runBuiltinAgent({
+      prompt:"Find comparable fares", model:"test",
+      client:{chat: async () => ({message: ++modelCalls > 10 ? {content:"Comparison ready"} : {tool_calls:[toolCall("scroll",{amount:700})]}})},
+      tools:{
+        definitions:[{type:"function",function:{name:"scroll"}}], has: name => name === "scroll",
+        prepare: (_name,args) => args,
+        call: async () => { scrolls++; return {text:changing ? "New row " + scrolls : "End of page",images:[]}; },
+      },
+    });
+    assert.equal(result.status, changing ? "completed" : "no_progress");
+    assert.equal(scrolls, changing ? 10 : 4);
+  }
+});
+
+test("two delivered clicks with identical passenger readings stop before a third dispatch", async () => {
+  for (const enabled of [false, true]) {
+    let comparisons = 0;
+    const provider = await fakeProvider(body => {
+      const instructions = body.messages[0].content;
+      if (instructions.startsWith("Propose two")) {
+        comparisons++;
+        assert.match(JSON.parse(body.messages[1].content).observations.join(" "), /Passengers: 1 Adult/);
+        return reply({content: "Inspect the picker\nRead the confirmation label"});
+      }
+      if (instructions.startsWith("Probe this") || instructions.startsWith("Compare the two")) return reply({content:"Inspect the confirmation label."});
+      if (!body.tools) return reply({content:"The page still shows 1 adult."});
+      return reply({tool_calls: [toolCall("click", {element_id:9}, "click"), toolCall("state", {}, "state")]});
+    });
+    const mcp = fakeMCP(name => ({content:[{type:"text", text:name === "click" ? "OK" : "Passengers: 1 Adult"}]}));
+    const reports = [];
+    try {
+      const result = await turn(provider, mcp, {prompt:"Select two passengers", useHarness2:enabled, onReport:r=>reports.push(r)}).promise;
+      assert.equal(result.failure?.code, "no_progress");
+      assert.equal(mcp.toolCalls().filter(c=>c.name === "click").length, 2);
+      assert.ok(result.steps < 10);
+      assert.ok(reports.some(r=>r.progress.includes("same observed page state")));
+      assert.equal(comparisons, enabled ? 1 : 0);
+      assert.match(result.stdout, /1 adult/);
+    } finally { await provider.close(); }
+  }
+});
+
+test("unchanged inline nbc diffs block the repeated control and still allow a different one", async () => {
+  const seen = [];
+  const provider = await fakeProvider(body => {
+    if (seen.includes(10)) return reply({content:"2 passengers confirmed"});
+    const blocked = body.messages.some(m => m.role === "tool" && m.content.includes("This click was skipped"));
+    return reply({tool_calls:[toolCall("click", {element_id:blocked ? 10 : 9})]});
+  });
+  const mcp = fakeMCP((_name, args) => {
+    seen.push(args.element_id);
+    return {content:[{type:"text",text:JSON.stringify({clicked:args.element_id,state_diff:{changed:args.element_id === 10}})}]};
+  });
+  try {
+    const result = await turn(provider, mcp).promise;
+    assert.equal(result.code, 0);
+    assert.deepEqual(seen, [9,9,10]);
+  } finally { await provider.close(); }
+});
+
+test("repeated clicks are allowed when the form changes beyond the model's output limit", async () => {
+  let passengers = 1;
+  const provider = await fakeProvider(() => passengers === 5 ? reply({content:"5 passengers confirmed"}) :
+    reply({tool_calls:[toolCall("click", {element_id:9})]}));
+  const mcp = fakeMCP(() => {
+    const state = {page:{id:"booking",url:"https://example.test"},elements:[
+      {id:2,role:"link",name:"x".repeat(10000)}, {id:5,role:"spinbutton",value:String(++passengers)},
+    ]};
+    return {content:[{type:"text",text:JSON.stringify({state})}]};
+  });
+  try {
+    assert.equal((await turn(provider, mcp).promise).code, 0);
+    assert.equal(mcp.toolCalls().length, 4);
+  } finally { await provider.close(); }
+});
+
+test("an acknowledgement-only click is inspected before the model can issue a blind retry", async () => {
+  const provider = await fakeProvider(body => body.messages.some(m=>m.role === "tool" && m.content.includes("Passengers: 2")) ?
+    reply({content:"2 passengers confirmed"}) : reply({tool_calls:[toolCall("click", {element_id:9})]}));
+  const mcp = fakeMCP(name=>({content:[{type:"text",text:name === "click" ? "OK" : "Passengers: 2"}]}));
+  try {
+    assert.equal((await turn(provider,mcp).promise).code, 0);
+    assert.deepEqual(mcp.toolCalls().map(c=>c.name), ["click","state"]);
+  } finally { await provider.close(); }
+});
+
+test("extra readings are not clicks, a changed value or document releases a blocked target", () => {
+  const guard = createClickProgress();
+  const args = {profile:"Work"};
+  const target = '["Work","click",9]';
+  const read = (name, passengers, pageId) => {
+    const state = {page:{id:pageId,url:"https://example.test"},elements:[{id:9,role:"button",name:"Add"}],
+      content:[{role:"text",text:"Adults " + passengers}]};
+    guard.record(name, args, name === "click" ? target : "", {text:JSON.stringify(name === "click" ? {state} : state)});
+  };
+  read("click", 1, "booking");
+  read("state", 1, "booking");
+  read("state", 1, "booking");
+  assert.equal(guard.repeats(target), false);
+  read("click", 1, "booking");
+  assert.equal(guard.repeats(target), true);
+  read("state", 2, "booking");
+  assert.equal(guard.repeats(target), false);
+  read("click", 2, "booking");
+  read("click", 2, "booking");
+  assert.equal(guard.repeats(target), true);
+  read("state", 2, "other-tab");
+  assert.equal(guard.repeats(target), false);
 });
 
 test("Stop cancels a request the provider has not answered", async () => {
@@ -300,6 +678,55 @@ test("a plain run sends no tools and starts no browser", async () => {
   }
 });
 
+test('connected MCP tools reach the model, execute and do not enter plain runs', async () => {
+  const custom = fakeMCP(() => ({ content: [{ type: 'text', text: 'custom-service-result' }] }));
+  const provider = await fakeProvider((body, _request, index) => {
+    if (!index) {
+      const tool = body.tools.find(tool => tool.function.name.startsWith('mcp_'));
+      assert.ok(tool, 'custom tools offered alongside browser tools');
+      return reply({ tool_calls: [toolCall(tool.function.name, {})] });
+    }
+    assert.ok(body.messages.some(message => message.role === 'tool' && message.content.includes('custom-service-result')));
+    return reply({ content: 'Connected tool worked.' });
+  });
+  const options = { userMcpServers: [{ id: 'abc', name: 'Example service', command: '/fake/custom', args: [], env: {} }], userMcpDeps: { spawnImpl: custom.spawnImpl } };
+  try {
+    const result = await turn(provider, fakeMCP(), options).promise;
+    assert.equal(result.stdout, 'Connected tool worked.'); assert.equal(custom.toolCalls().length, 1);
+    assert.ok(custom.children.every(child => child.killed));
+  } finally { await provider.close(); }
+  const plainProvider = await fakeProvider(() => reply({ content: 'plain' }));
+  try { await turn(plainProvider, fakeMCP(), { ...options, plain: true }).promise; assert.equal(custom.spawned.length, 1); }
+  finally { await plainProvider.close(); }
+});
+
+test('the model can call the workspace command by its documented name even without the browser CLI', async () => {
+  for (const browser of [undefined, { binary: '/unavailable', spawnImpl() { throw Error('Browser unavailable'); } }]) {
+    const workspace = fakeMCP(() => ({ content: [{ type: 'text', text: 'workspace-ok' }] }), [
+      { name: 'run_command', description: 'Execute after approval.', inputSchema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
+    ]);
+    const provider = await fakeProvider((body, _request, index) => {
+      if (index === 0) {
+        assert.match(body.messages[0].content, /workspace_run_command/);
+        assert.ok(body.tools.some(item => item.function.name === 'workspace_run_command'));
+        return reply({ tool_calls: [toolCall('workspace_run_command', { command: 'mkdir demo' })] });
+      }
+      assert.ok(body.messages.some(message => message.role === 'tool' && message.content.includes('workspace-ok')));
+      return reply({ content: 'Workspace ready.' });
+    });
+    try {
+      const result = await turn(provider, null, {
+        prompt: 'Create a folder called demo.',
+        mcp: browser,
+        userMcpServers: [{ id: 'stock', name: 'Workspace tools', command: '/fake/workspace', args: [] }],
+        userMcpDeps: { spawnImpl: workspace.spawnImpl },
+      }).promise;
+      assert.equal(result.stdout, 'Workspace ready.');
+      assert.deepEqual(workspace.toolCalls(), [{ name: 'run_command', arguments: { command: 'mkdir demo' } }]);
+    } finally { await provider.close(); }
+  }
+});
+
 test("browser tools that cannot start end the run with a reason", async () => {
   const provider = await fakeProvider(() => reply({ content: "never" }));
   const spawnImpl = () => {
@@ -341,7 +768,7 @@ for (const [status, code, pattern] of [
       assert.equal(result.failure.expected, true);
       assert.equal(result.failure.status, status);
       assert.ok(!JSON.stringify(result).includes(SECRET), "the key never reaches the result");
-      assert.equal(describeBuiltinAgentResult({ result, provider: "nvidia", model: "m" }).event, null, "the user fixes it; no report");
+      assert.equal(describeBuiltinAgentResult({ result, provider: "nvidia", model: "m" }).event.context.failure, code);
     } finally {
       await provider.close();
     }
@@ -407,7 +834,7 @@ test("a missing key or setting fails before anything is sent", async () => {
     const noKey = await turn(provider, fakeMCP(), { settings: { provider: "nvidia", model: "m" }, loadKey: async () => "" }).promise;
     assert.match(noKey.reason, /Add your NVIDIA API key in Settings → Agent/);
     assert.deepEqual(noKey.failure, { code: "not_configured", expected: true });
-    const noModel = await turn(provider, fakeMCP(), { settings: { provider: "nvidia" } }).promise;
+    const noModel = await turn(provider, fakeMCP(), { settings: { provider: "deepseek" } }).promise;
     assert.match(noModel.reason, /Pick a model/);
     const noURL = await turn(provider, fakeMCP(), { settings: { provider: "custom", model: "m" } }).promise;
     assert.match(noURL.reason, /base URL/);
@@ -615,12 +1042,12 @@ test("NVIDIA preselects a chat Nemotron model: Super, then Ultra, then Nano", ()
   assert.equal(defaultModelFor("nvidia", models), "nvidia/llama-3.3-nemotron-super-49b-v1.5");
   assert.equal(defaultModelFor("nvidia", models.filter((model) => !/super/.test(model.id))), "nvidia/llama-3.1-nemotron-ultra-253b-v1");
   assert.equal(defaultModelFor("nvidia", models.filter((model) => /nano/.test(model.id))), "nvidia/nvidia-nemotron-nano-9b-v2");
-  assert.equal(defaultModelFor("nvidia", []), "nvidia/llama-3.3-nemotron-super-49b-v1.5");
+  assert.equal(defaultModelFor("nvidia", []), "nvidia/nemotron-3.5-super-vl-120b-a12b");
   assert.ok(!offeredModels("nvidia", models).some((model) => /embed|reward/.test(model.id)));
   assert.equal(models.find((model) => model.id.endsWith("-vl")).vision, true);
 });
 
-test("OpenRouter offers its free router and free tool models; Gemini a Flash model", () => {
+test("Managed OpenRouter offers free tool models and maps a saved paid model to the free router", () => {
   const openrouter = [
     { id: "openai/gpt-4o", supported_parameters: ["tools"] },
     { id: "meta-llama/llama-3.3-70b-instruct:free", supported_parameters: ["tools", "temperature"] },
@@ -628,8 +1055,18 @@ test("OpenRouter offers its free router and free tool models; Gemini a Flash mod
   ].map((item) => describeModel("openrouter", item));
   assert.equal(defaultModelFor("openrouter", openrouter), "meta-llama/llama-3.3-70b-instruct:free");
   assert.deepEqual(offeredModels("openrouter", openrouter).map((model) => model.id), [OPENROUTER_FREE_ROUTER, "meta-llama/llama-3.3-70b-instruct:free"]);
+  assert.equal(resolveProviderSettings({ provider: "openrouter", model: "openai/gpt-4o" }, "https://api.example.test/v1/agent/openrouter").model, OPENROUTER_FREE_ROUTER);
   assert.equal(openrouter[2].vision, true);
-  assert.equal(defaultModelFor("openrouter", []), OPENROUTER_FREE_ROUTER);
+  const nemotron = "nvidia/nemotron-3.5-super-vl:free";
+  assert.equal(defaultModelFor("openrouter", []), nemotron);
+  const endpoint = "https://api.example.test/v1/agent/openrouter";
+  assert.equal(resolveProviderSettings({}, endpoint).model, nemotron);
+  assert.equal(resolveProviderSettings({}, endpoint).provider, "openrouter");
+  assert.equal(resolveProviderSettings({ provider: "openrouter", model: OPENROUTER_FREE_ROUTER }, endpoint).model, OPENROUTER_FREE_ROUTER);
+  const catalog = [{ id: OPENROUTER_FREE_ROUTER, free: true }, { id: nemotron, free: true, tools: true }];
+  assert.equal(defaultModelFor("openrouter", catalog), nemotron);
+  catalog[1].tools = false;
+  assert.equal(defaultModelFor("openrouter", catalog), OPENROUTER_FREE_ROUTER);
   const gemini = ["models/gemini-2.0-flash", "models/gemini-2.5-flash", "models/gemini-2.5-flash-lite", "models/text-embedding-004"].map((id) => describeModel("gemini", { id }));
   assert.equal(defaultModelFor("gemini", gemini), "gemini-2.5-flash");
   assert.ok(!offeredModels("gemini", gemini).some((model) => /embedding/.test(model.id)));
@@ -717,4 +1154,35 @@ test("the main process runs the built-in agent in-process, stops it, and keeps i
   assert.ok(!/console\.\w+\([^)]*(?:apiKey|builtinAgentKeys)/.test(main), "no key is logged");
   const { describeInvokeFailure } = require("./invoke-failure-report.cjs");
   assert.equal(describeInvokeFailure({ command: "builtin_agent_key_save", error: new Error(`bad ${SECRET}`) }).event.message.includes("TOPSECRET"), false);
+});
+test("Anthropic compatibility supplies a budget and omits unsupported sampling on every tool turn", async () => {
+  const sent = [];
+  const client = createProviderClient({ provider: "anthropic", baseURL: "https://api.anthropic.com/v1", apiKey: SECRET,
+    fetchImpl: async (url, init) => {
+      sent.push({ url, init, body: init.body && JSON.parse(init.body) });
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }) };
+    } });
+  const body = { model: "claude-test", messages: [{ role: "user", content: "Hi" }], temperature: 0.2, tools: [ { type: "function", function: { name: "ping", parameters: { type: "object" } } } ], tool_choice: "auto" };
+  assert.equal((await client.chat(body)).message.content, "ok");
+  assert.equal(sent[0].url, "https://api.anthropic.com/v1/chat/completions");
+  assert.equal(sent[0].body.max_tokens, 4096);
+  assert.equal(sent[0].body.temperature, undefined);
+  assert.deepEqual(sent[0].body.tools, body.tools);
+  assert.equal(sent[0].init.headers.authorization, `Bearer ${SECRET}`);
+  assert.equal(body.temperature, 0.2, "caller's request is not mutated");
+  await client.chat({ ...body, max_tokens: 256 });
+  assert.equal(sent[1].body.max_tokens, 256, "connection tests keep their small budget");
+});
+
+test("Anthropic model discovery uses its versioned authenticated endpoint; DeepSeek resolves its own key and URL", async () => {
+  const client = createProviderClient({ provider: "anthropic", baseURL: "https://api.anthropic.com/v1", apiKey: SECRET,
+    fetchImpl: async (url, init) => {
+      assert.equal(url, "https://api.anthropic.com/v1/models?limit=1000");
+      assert.equal(init.headers["anthropic-version"], "2023-06-01");
+      assert.equal(init.headers.authorization, `Bearer ${SECRET}`);
+      return { ok: true, text: async () => JSON.stringify({ data: [{ id: "claude-test" }] }) };
+    } });
+  assert.deepEqual((await client.listModels()).map(item => item.id), ["claude-test"]);
+  assert.deepEqual(resolveProviderSettings({ provider: "deepseek", model: "deepseek-flash" }), { provider: "deepseek", providerName: "DeepSeek", baseURL: "https://api.deepseek.com", model: "deepseek-flash", keyRequired: true });
+  assert.equal(defaultModelFor("deepseek", [{ id: "deepseek-v4-pro" }, { id: "deepseek-flash" }]), "deepseek-flash");
 });

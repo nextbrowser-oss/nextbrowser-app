@@ -1,4 +1,9 @@
+import { reportJourney } from "./lib/productJourney";
 import { create } from "zustand";
+import { forEachConcurrent } from "./shared/lib/async";
+import { applyProjectDrop, projectRoot, type ProjectTreeDrop } from "./lib/projectTree";
+import { generateSessionTitle, hasTitleRunner, mergeSessionName, namedSession, needsSessionTitle, SessionTitleHeader, sessionTitleInstruction } from "./lib/sessionTitle";
+import { isUtilityDialogTab, type UtilityDialogTab } from "./lib/appNavigation";
 import { invoke, listen } from "./electronBridge";
 import {
   nextctlEnvelope as rawNextctlEnvelope,
@@ -87,8 +92,8 @@ import {
   type SocialFeed,
   type SocialMatch,
 } from "./lib/socialmonitor/feed";
-import { activityFromText, appendAgentStep, extractToolEvents } from "./lib/activityParser";
-import { composePrompt } from "./lib/composePrompt";
+import { BROWSER_VERIFICATION_ATTENTION, BROWSER_VERIFICATION_INSTRUCTIONS, activityFromText, appendAgentStep, extractToolEvents, needsBrowserVerification } from "./lib/activityParser";
+import { composePrompt, recentChatHistory } from "./lib/composePrompt";
 import { executionTargetForTurn, type ExecutionTarget } from "./lib/executionTarget";
 import { shouldApplyRemoteConversation } from "./lib/conversationSync";
 import { hasVPSPromptMarker, vpsConnectionInstructions } from "./lib/vpsPrompt";
@@ -194,6 +199,7 @@ import { clearAllSelectedProfiles, forgetSelectedProfileName, forgetWorkspaceSel
 import { cloudPhoneFromSelection, cloudPhoneSkillPrompt } from "./lib/cloudPhoneSkill";
 import { isMultiloginStartRequest, multiloginStartReply } from "./lib/multiloginChatCommand";
 import { nextctlRemoteArgs, type LiveStreamTarget } from "./lib/liveStreamTarget";
+import { multiloginTargetKey } from "./lib/liveProfileSwitch";
 import { customPrivateSlug, customPublishSelector } from "./types";
 
 interface QueuedItem {
@@ -613,7 +619,9 @@ async function pullCatalogInstructions(entry: SkillEntry, preferredAgentId: stri
 interface State {
   authed: boolean;
   accountEmail?: string;
+  accountName?: string;
   accountOwnerId?: string;
+  accountCreatedAt?: string;
   checking: boolean;
   /** "setup": the first run is still downloading and checking the Nextbrowser CLI. */
   startupPhase: "local" | "account" | "setup";
@@ -642,6 +650,7 @@ interface State {
   selectedProfile?: string;
   defaultSession?: SessionStatus;
   profileSearch: string;
+  profileNameSort: "asc" | "desc" | undefined;
   isRefreshing: boolean;
   agentId: string;
   runtime: Record<string, AgentRuntime>;
@@ -658,6 +667,8 @@ interface State {
   workspaceSetupAuto: "pending" | "running" | "done" | "failed";
   activeConvId: Record<string, string>;
   tab: AppTab;
+  selectedMiniApp?: { owner: string; id: string };
+  utilityDialog?: UtilityDialogTab;
   skillState: Record<string, SkillApplyState | string>;
   scheduledRuns: ScheduledRun[];
   customScripts: CustomScript[];
@@ -769,11 +780,11 @@ interface State {
   loadProxyCountries: () => Promise<void>;
   loadDefaultSession: () => Promise<void>;
   loadSkillCatalog: () => Promise<void>;
-  startDefaultSession: () => Promise<void>;
+  startDefaultSession: (options?: { forLive?: boolean; liveWindow?: boolean }) => Promise<void>;
   stopDefaultSession: () => Promise<void>;
   rotateDefaultSession: () => Promise<void>;
   rotateDefaultSessionCountry: (country: string) => Promise<void>;
-  startProfile: (n: string) => Promise<void>;
+  startProfile: (n: string, options?: { forLive?: boolean; liveWindow?: boolean }) => Promise<void>;
   stopProfile: (n: string) => Promise<void>;
   rotateProfile: (n: string) => Promise<void>;
   rotateProfileCountry: (n: string, country: string) => Promise<void>;
@@ -811,9 +822,14 @@ interface State {
   loginAgent: () => Promise<void>;
   logoutAgent: () => Promise<void>;
   recheckLogin: (agentId?: string) => Promise<void>;
-  setTab: (t: AppTab) => void;
+  setTab: (t: AppTab, miniApp?: { owner: string; id: string }) => void;
+  liveSession?: { workspaceId?: string; key?: string };
+  openLiveSession: (key?: string) => void;
+  showLiveOverview: () => void;
+  closeUtilityDialog: () => void;
   setAppActive: (v: boolean) => void;
   setProfileSearch: (q: string) => void;
+  toggleProfileNameSort: () => void;
   setSidebarWidth: (w: number) => void;
   setSidebarCollapsed: (v: boolean) => void;
   setChatListCollapsed: (v: boolean) => void;
@@ -832,6 +848,7 @@ interface State {
   createWorkspace: (name: string) => Promise<string>;
   selectWorkspace: (id: string) => void;
   deleteWorkspace: (id: string, onProgress?: (message: string) => void) => Promise<void>;
+  resetWorkspaceData: (confirmation: string, onProgress: (message: string) => void) => Promise<void>;
   completeWorkspaceSetup: () => void;
   /** Create a default workspace, project, and one profile per toolset without
    *  showing the setup modal. Falls back to the gate only if it fails. */
@@ -855,6 +872,8 @@ interface State {
   skillApplyError: (entryId: string) => string | undefined;
 
   newChat: () => string;
+  createProjectSession: (projectId: string, agentId?: string) => string;
+  moveProjectTreeItem: (event: ProjectTreeDrop) => void;
   createProject: (name: string, mode: "chat" | "terminal", agentId?: string) => string;
   changeEmptyProjectAgent: (id: string, agentId: string) => boolean;
   assignProfileToProject: (profileName: string, toolset: BrowserToolset, projectId?: string, replaceToolset?: boolean, proxyId?: string) => Promise<void>;
@@ -863,7 +882,9 @@ interface State {
   reorderProfileInProject: (projectId: string, profileName: string, beforeProfileName: string) => Promise<void>;
   createNamedChat: (agentId: string, title: string) => string;
   selectConversation: (id: string) => void;
+  rememberConversationProfile: (id: string, name: string, toolset: BrowserToolset) => void;
   renameConversation: (id: string, title: string) => void;
+  renameSession: (id: string, title: string) => void;
   updateTerminalPreview: (id: string, preview?: string) => void;
   deleteConversation: (id: string) => Promise<void>;
   forkConversation: (atMessageId?: string) => void;
@@ -1064,10 +1085,12 @@ let didBootstrap = false;
 type AgentDone = { code: number; stderr: string; stdout: string; reason?: string; failure?: BuiltinAgentFailure };
 interface NextctlUpdateState { lastAutoCheckAt?: number; rateLimitedUntil?: number }
 interface APIKeyIdentity {
+  account_created_at?: string;
   valid: boolean;
   key_id?: string;
   owner_id?: string;
   email?: string;
+  name?: string;
 }
 
 const replyExecutionTargets = new Map<string, ExecutionTarget>();
@@ -1596,6 +1619,21 @@ function flushConversations(): Promise<void> {
 }
 
 let scheduleWriteTail: Promise<void> = Promise.resolve();
+let scheduleHandoff = false;
+let workspaceResetPending = false;
+let scheduleWorker = typeof window !== "undefined" &&
+  new URLSearchParams(window.location?.search).has("backgroundSchedule");
+
+export function enterScheduleForeground() {
+  scheduleWorker = false;
+}
+
+export async function flushScheduleHandoff() {
+  // The new renderer takes over due work after this one has finished writing.
+  scheduleHandoff = true;
+  await Promise.allSettled([scheduleWriteTail, conversationWriteTail]);
+}
+
 function persistSchedules(runs: ScheduledRun[]) {
   const snapshot = serializeSchedules(runs);
   scheduleWriteTail = scheduleWriteTail.catch(() => {}).then(() => saveJson("scheduled-runs.json", snapshot));
@@ -1998,12 +2036,16 @@ async function verifyProxyIdentity(profile?: string): Promise<ProxyIdentity | un
 }
 
 async function refreshAnalyticsIdentity(): Promise<boolean> {
+  const epoch = accountEpoch;
   const wrap = await nextctlJson<{ identity: APIKeyIdentity }>(["identity"]);
+  if (epoch !== accountEpoch) return false;
   const valid = wrap.identity?.valid === true;
   const ownerId = valid ? wrap.identity.owner_id?.trim() : undefined;
   const accountEmail = valid ? wrap.identity.email?.trim() : undefined;
   setAnalyticsUserId(ownerId || undefined);
-  useStore.setState({ accountEmail: accountEmail || undefined, accountOwnerId: ownerId || undefined });
+  const accountName = valid ? wrap.identity.name?.trim() : undefined;
+  useStore.setState({ accountEmail: accountEmail || undefined, accountName: accountName || undefined, accountOwnerId: ownerId || undefined,
+    accountCreatedAt: ownerId ? wrap.identity.account_created_at : undefined });
   trackEvent("analytics_identity_loaded", {
     valid,
     has_owner_id: !!ownerId,
@@ -2055,7 +2097,7 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
       return valid;
     } catch {
       setAnalyticsUserId(undefined);
-      useStore.setState({ accountEmail: undefined, accountOwnerId: undefined });
+      useStore.setState({ accountEmail: undefined, accountName: undefined, accountOwnerId: undefined, accountCreatedAt: undefined });
       trackEvent("analytics_identity_unavailable", { phase: "bootstrap" });
       return false;
     }
@@ -2064,7 +2106,9 @@ async function refreshLocalNextctlMetadata(): Promise<boolean> {
     const incompatible = String(error).includes("VERIFY_REQUIRED");
     useStore.setState({
       accountEmail: undefined,
+      accountName: undefined,
       accountOwnerId: undefined,
+      accountCreatedAt: undefined,
       nextctlVersion: incompatible ? "update required" : "not found",
       nextctlSupportsSkill: false,
       nextctlAvailable: false,
@@ -2111,6 +2155,7 @@ async function refreshCompletedAccountPairing(
     dashboardKeyPromptOpen: false,
     loginError: undefined,
   });
+  reportJourney("login_succeeded");
   useStore.getState().startTimers();
   // A clean logout clears the local workspace/project cache. Restore it on
   // browser sign-in too, not only on app bootstrap, before presenting an
@@ -2198,6 +2243,30 @@ function settleTransientStatus(name: string, transient: string): void {
 }
 
 export const useStore = create<State>((set, get) => {
+  const namingSessions = new Set<string>();
+  const titleHeaders = new Map<string, SessionTitleHeader>();
+  const reportCheckpoints = new Map<string, number>();
+  async function nameFromFirstMessage(conversation: Conversation, first: ChatMessage) {
+    if (namingSessions.has(conversation.id) || !needsSessionTitle(conversation) || !hasTitleRunner(conversation.agent)) return;
+    if (hasVPSPromptMarker(first.text)) return;
+    const epoch = accountEpoch;
+    namingSessions.add(conversation.id);
+    try {
+      const title = await generateSessionTitle(conversation.agent, first.commandChip?.title || first.text);
+      const current = get().conversations.find(item => item.id === conversation.id);
+      const currentFirst = current?.messages.find(item => item.role === "user");
+      if (!title || accountEpoch !== epoch || !current || !needsSessionTitle(current) ||
+          currentFirst?.id !== first.id || currentFirst.text !== first.text) return;
+      const conversations = get().conversations.map(item => item.id === current.id ? { ...namedSession(item, title), updatedAt: now() } : item);
+      persistConvs(conversations);
+      set({ conversations });
+    } catch {
+      // Keep the current name. The next user turn can retry using the original first message.
+    } finally {
+      namingSessions.delete(conversation.id);
+    }
+  }
+  const savedProfileNameSort = settingsStorage.getItem("nextbrowser.profileNameSort");
   const enqueueWithTarget = (
     text: string,
     chip?: UserCommandChip,
@@ -2293,6 +2362,10 @@ export const useStore = create<State>((set, get) => {
       return { conversations, runtime };
     });
     get().startConsumer(agentId);
+    if (targetConversation) {
+      const first = targetConversation.messages.find(message => message.role === "user") ?? userMsg;
+      void nameFromFirstMessage(targetConversation, first);
+    }
     return replyId;
   };
 
@@ -2303,6 +2376,7 @@ export const useStore = create<State>((set, get) => {
     const activeMessage = owningConversation?.messages.find((message) => message.id === replyId);
     if (!owningConversation || !activeMessage || activeMessage.status !== "streaming") return;
     const owningConversationId = owningConversation.id;
+    reportCheckpoints.delete(replyId);
     const agentId =
       Object.entries(get().runtime).find(([, runtime]) => runtime.runningReplyId === replyId)?.[0] ??
       owningConversation?.agent ??
@@ -2319,8 +2393,13 @@ export const useStore = create<State>((set, get) => {
         ...s.runtime,
         [agentId]: { ...s.runtime[agentId], loggedIn: false },
       } }));
-    } else if (result.code !== 0) void get().recheckLogin(agentId);
+    } else if (result.code !== 0 && !["max_steps", "no_progress", "verification_pending"].includes(result.failure?.code ?? "")) void get().recheckLogin(agentId);
     const stopped = get().runtime[agentId]?.pendingStop;
+    const header = titleHeaders.get(replyId);
+    const remaining = header?.read("", true) ?? "";
+    const finalHeader = header && new SessionTitleHeader();
+    const stdout = finalHeader ? finalHeader.read(result.stdout, true) : result.stdout;
+    const generated = header?.title || finalHeader?.title;
     set((s) => {
       const runtime = { ...s.runtime };
       if (runtime[agentId]) {
@@ -2336,15 +2415,26 @@ export const useStore = create<State>((set, get) => {
         messages: conversation.messages.map((message) => {
           if (message.id !== replyId || message.status !== "streaming") return message;
           let status: ChatMessage["status"] = "done";
-          let text = message.text.trim() || capStreamText(result.stdout).trim();
+          let text = (message.text + remaining).trim() || capStreamText(stdout).trim();
           if (stopped) {
             status = "cancelled";
             text = text ? `${text}\n[stopped]` : "[stopped]";
-          } else if (result.code !== 0 && isBuiltinAgent(agentId) && result.reason) {
+          } else if (isBuiltinAgent(agentId) && result.failure?.code === "verification_pending") {
+            status = "needsAttention";
+            text = capStreamText(stdout).trim();
+            if (result.failure.ref) text += `\n\nRef: ${result.failure.ref}`;
+          } else if ((result.code !== 0 || !text) && (
+            message.activityLabel === BROWSER_VERIFICATION_ATTENTION ||
+            message.toolEvents?.some((event) => needsBrowserVerification(event.detail ?? "")) ||
+            needsBrowserVerification(result.reason ?? "")
+          )) {
+            status = "failed";
+            text = [text, BROWSER_VERIFICATION_INSTRUCTIONS, result.failure?.ref && `Ref: ${result.failure.ref}`].filter(Boolean).join("\n\n");
+          } else if (isBuiltinAgent(agentId) && (result.code !== 0 || !text) && result.reason) {
             // The built-in agent says what went wrong in the user's terms. A
             // failure they fix in Settings needs no reference for support.
-            status = "failed";
-            const error = result.failure?.expected ? result.reason : internalError(result.reason, "BUILTIN_AGENT_FAILED");
+            status = ["max_steps", "no_progress"].includes(result.failure?.code ?? "") ? "needsAttention" : "failed";
+            const error = result.failure?.ref ? `${result.reason} Ref: ${result.failure.ref}` : internalError(result.reason, "BUILTIN_AGENT_FAILED");
             text = text ? `${text}\n${error}` : error;
           } else if (result.code !== 0) {
             status = "failed";
@@ -2355,9 +2445,12 @@ export const useStore = create<State>((set, get) => {
             status = "failed";
             text = agentEmptyReplyMessage(agentId, agentById(agentId).name);
           }
-          return { ...message, status, text, stalled: false };
+          const runIssue = result.failure?.ref ? { code: result.failure.diagnosticCode || result.failure.code, ref: result.failure.ref } : undefined;
+          return { ...message, status, text, stalled: false, ...(runIssue ? {runIssue} : {}) };
         }),
         ...(conversation.id === owningConversationId ? { updatedAt: completedAt } : {}),
+        ...(conversation.id === owningConversationId && !stopped && !result.code && generated && needsSessionTitle(conversation)
+          ? { sessionTitle: generated, ...(conversation.projectId ? { title: generated } : {}) } : {}),
       }));
       persistConvs(conversations);
       return { conversations, runtime };
@@ -2370,6 +2463,7 @@ export const useStore = create<State>((set, get) => {
     const finished = get().conversations.find((conversation) => conversation.id === owningConversationId);
     const replyIndex = finished?.messages.findIndex((message) => message.id === replyId) ?? -1;
     if (finished && finished.messages[replyIndex]?.status === "done") {
+      if (!stopped && result.code === 0) reportJourney("agent_action_succeeded");
       const request = finished.messages.slice(0, replyIndex).reverse().find((message) => message.role === "user");
       const state = get();
       trackFirstTaskSucceeded(
@@ -2403,7 +2497,9 @@ export const useStore = create<State>((set, get) => {
   return {
   authed: false,
   accountEmail: undefined,
+  accountName: undefined,
   accountOwnerId: undefined,
+  accountCreatedAt: undefined,
   checking: true,
   startupPhase: "local",
   startupError: undefined,
@@ -2420,8 +2516,9 @@ export const useStore = create<State>((set, get) => {
   profileIdentities: {},
   profileChatOwners: {},
   profileSearch: "",
+  profileNameSort: savedProfileNameSort === "asc" || savedProfileNameSort === "desc" ? savedProfileNameSort : undefined,
   isRefreshing: false,
-  agentId: settingsStorage.getItem("lastAgent") ?? "claude",
+  agentId: settingsStorage.getItem("lastAgent") ?? BUILTIN_AGENT_ID,
   runtime: initRuntimes(),
   conversations: [],
   workspaces: [],
@@ -2625,12 +2722,20 @@ export const useStore = create<State>((set, get) => {
       // The restored project decides chat or terminal mode. The global
       // "terminalChat" key is not rewritten on a workspace or agent switch, so
       // it can belong to a different project than the one that reopens.
-      const reopenedProject = convs.find((conversation) => conversation.id === activeConvId[get().agentId]);
+      let agentId = get().agentId;
+      if (!activeConvId[agentId] && !settingsStorage.getItem("lastAgent")) {
+        // Older profiles can have chats from before the built-in agent became the default.
+        const mostRecent = convs.filter(c => activeConvId[c.agent] === c.id)
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        if (mostRecent) agentId = mostRecent.agent;
+      }
+      const reopenedProject = convs.find((conversation) => conversation.id === activeConvId[agentId]);
       set({
         conversations: convs,
         workspaces,
         activeWorkspaceId,
         activeConvId,
+        agentId,
         selectedProfile: rememberedSelectedProfile(workspaces.find((workspace) => workspace.id === activeWorkspaceId)),
         ...(reopenedProject ? { terminalChat: reopenedProject.chatMode === "terminal" } : {}),
         scheduledRuns: schedules,
@@ -2698,7 +2803,10 @@ export const useStore = create<State>((set, get) => {
       });
 
       await listen<[string, string]>("agent:chunk", (e) => {
-        const [replyId, chunk] = e.payload;
+        const [replyId, rawChunk] = e.payload;
+        const header = titleHeaders.get(replyId);
+        const chunk = header ? header.read(rawChunk) : rawChunk;
+        if (!chunk) return;
         set((s) => {
           const conversations = s.conversations.map((c) => ({
             ...c,
@@ -2764,6 +2872,22 @@ export const useStore = create<State>((set, get) => {
           }));
           // Persisted on completion, not per step — see agent:chunk.
           return { conversations };
+        });
+      });
+
+      await listen<[string, NonNullable<ChatMessage["runReport"]>]>("agent:report", ({payload: [replyId, report]}) => {
+        const at = now();
+        set(s => {
+          const conv = s.conversations.find(c => c.messages.some(m => m.id === replyId && m.status === "streaming"));
+          if (!conv) return s;
+          const conversations = s.conversations.map(c => c !== conv ? c : ({
+            ...c, messages: c.messages.map(m => m.id === replyId ? {...m, runReport: report, lastActivityAt: at, stalled: false} : m),
+          }));
+          if (report.plan.length && at - (reportCheckpoints.get(replyId) ?? 0) >= 15000) {
+            reportCheckpoints.set(replyId, at);
+            void persistConvs(conversations);
+          }
+          return {conversations};
         });
       });
 
@@ -2845,7 +2969,7 @@ export const useStore = create<State>((set, get) => {
     if (scheduleTimer) clearInterval(scheduleTimer);
     scheduleTimer = setInterval(() => {
       void get().tickScheduledRuns();
-      void get().tickWatchlistRuns();
+      if (!scheduleWorker && !scheduleHandoff) void get().tickWatchlistRuns();
     }, SCHEDULE_TICK_MS);
     if (nextctlDailyUpdateTimer) clearInterval(nextctlDailyUpdateTimer);
     nextctlDailyUpdateTimer = setInterval(
@@ -2879,7 +3003,7 @@ export const useStore = create<State>((set, get) => {
     // A development build may intentionally point at a locally compiled nbc.
     // Never replace that test binary with the latest published release while
     // the app is running under Vite/Electron development mode.
-    if (import.meta.env.DEV) return;
+    if (import.meta.env.DEV || scheduleWorker) return;
     // An incompatible CLI reports nextctlAvailable=false but still needs a
     // reinstall, so let the tick through for that case.
     if (!get().nextctlAvailable && !get().nextctlCompatibilityError) return;
@@ -2918,7 +3042,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   tickScheduledRuns: async () => {
-    if (!get().authed || get().loggingOut) return;
+    if (scheduleHandoff || !get().authed || get().loggingOut) return;
     const d = new Date();
     const hour = d.getHours();
     const minute = d.getMinutes();
@@ -3012,6 +3136,7 @@ export const useStore = create<State>((set, get) => {
         // from a terminal since.
         if (agentRuntime()?.loggedIn === false) await get().recheckLogin(run.agent);
         if (!passes(scheduledAgentCheck(agentRuntime(), agentName))) continue;
+        if (scheduleHandoff) continue;
         let cid = run.conversationId;
         if (!cid || !get().conversations.some((c) => c.id === cid && c.agent === run.agent)) {
           const chatWorkspaceId = workspaceId ?? get().activeWorkspaceId;
@@ -3328,7 +3453,7 @@ export const useStore = create<State>((set, get) => {
           status.status_name ?? "starting",
           /[А-Яа-яЁё]/.test(item.rawText),
         ));
-        set({ tab: "live" });
+        get().openLiveSession(multiloginTargetKey(multiloginSelection));
         trackEvent("multilogin_profile_start_completed", { direct: true, kind: multiloginSelection.kind });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
@@ -3378,18 +3503,22 @@ export const useStore = create<State>((set, get) => {
       selected: activeProfile === name,
       ownerConversationId: get().profileChatOwners[name],
     }));
+    const turnContext = privateSkillContext(get().localSkills, item.rawText) + browserContext;
     const prompt = composePrompt(
       get().conversations,
       item.conversationId,
       item.replyId,
-      item.rawText
-        + privateSkillContext(get().localSkills, item.rawText)
-        + browserContext,
+      builtinAgent ? turnContext + "\n\nCurrent user request:\n" + item.rawText : item.rawText + turnContext,
       activeProfile,
       { nextctlAvailable: get().nextctlAvailable, executionTarget: item.executionTarget, builtinAgent },
     );
     const a = agentById(agentId);
-    const { args, stdin, stepFormat } = agentInvocation(a, prompt, { steps: true });
+    const firstUser = itemConversation?.messages.find(message => message.role === "user");
+    const askForTitle = !hasTitleRunner(agentId) && itemConversation && needsSessionTitle(itemConversation) &&
+      firstUser && !hasVPSPromptMarker(firstUser.text) && itemConversation.messages[itemConversation.messages.indexOf(firstUser) + 1]?.id === item.replyId;
+    if (askForTitle) titleHeaders.set(item.replyId, new SessionTitleHeader());
+    const agentPrompt = askForTitle ? sessionTitleInstruction + "\n\n" + prompt : prompt;
+    const { args, stdin, stepFormat } = agentInvocation(a, agentPrompt, { steps: true });
 
     const watchdog = setInterval(() => {
       const conv = get().conversations.find((c) => c.id === item.conversationId);
@@ -3422,6 +3551,8 @@ export const useStore = create<State>((set, get) => {
         args,
         stepFormat,
         stdinText: stdin ?? null,
+        ...(builtinAgent ? { chatTurn: { request: item.rawText, history: recentChatHistory(itemConversation, item.replyId) } } : {}),
+        promptArgIndex: stdin === undefined ? args.indexOf(agentPrompt) : undefined,
         workingDir: get().workingDir || null,
         conversationId: item.conversationId,
         workspaceId: conversationWorkspaceId,
@@ -3447,6 +3578,7 @@ export const useStore = create<State>((set, get) => {
       }));
     } finally {
       clearInterval(watchdog);
+      titleHeaders.delete(item.replyId);
     }
   },
 
@@ -3609,6 +3741,7 @@ export const useStore = create<State>((set, get) => {
       await guardAgainstForeignAccountCache();
       await get().loadProxy();
       set({ authed: true, nextctlAvailable: true, accountPairing: undefined });
+      reportJourney("login_succeeded");
       get().startTimers();
       await get().syncProjects();
       await get().refreshAll();
@@ -3769,6 +3902,9 @@ export const useStore = create<State>((set, get) => {
       set({
         authed: false,
         accountEmail: undefined,
+        accountName: undefined,
+        accountOwnerId: undefined,
+        accountCreatedAt: undefined,
         runtime,
         connectAnnounced: new Set(),
         proxy: undefined,
@@ -3975,6 +4111,12 @@ export const useStore = create<State>((set, get) => {
         try {
           const runtime = runtimeForProfile(get().workspaces, p.name);
           const st = await nextctlJson<SessionStatus>(["status", "--profile", p.name, "--runtime", runtime]);
+          const reportedRuntime = st.session?.runtime;
+          const expectedRuntime = runtime === "dasbrowser" ? "chromium" : runtime;
+          if (st.status === "running" && reportedRuntime && reportedRuntime !== runtime && reportedRuntime !== expectedRuntime) {
+            statuses[p.name] = "unknown";
+            continue;
+          }
           statuses[p.name] = st.status;
           profileSessions[p.name] = st;
           if (st.status === "running") {
@@ -4169,11 +4311,11 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  startDefaultSession: async () => {
+  startDefaultSession: async (options) => {
     const startedAt = performance.now();
     trackEvent("profile_start_requested", { scope: "default" });
     try {
-      await prepareLocalSession({ statuses: {}, verifyOnly: true });
+      await prepareLocalSession({ statuses: {}, verifyOnly: true, ...options });
       await get().loadDefaultSession();
       const identity = await verifyProxyIdentity();
       if (identity) set((s) => ({ profileIdentities: { ...s.profileIdentities, __default: identity } }));
@@ -4230,7 +4372,7 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
-  startProfile: (n) => {
+  startProfile: (n, options) => {
     const existing = pendingProfileStarts.get(n);
     if (existing) return existing;
     verifyingProfileStarts.add(n);
@@ -4248,7 +4390,7 @@ export const useStore = create<State>((set, get) => {
         const profile = get().profiles.find((item) => item.name === n);
         pendingProfileLaunches.set(n, operation);
         await prepareLocalSession({
-          selectedProfile: n, runtime, statuses: {}, verifyOnly: true,
+          selectedProfile: n, runtime, statuses: {}, verifyOnly: true, ...options,
           proxyExpected: profile?.proxy_mode !== "direct",
           shouldContinue: () => profileOperationEpoch.get(n) === operation,
         }).finally(() => {
@@ -4851,6 +4993,9 @@ export const useStore = create<State>((set, get) => {
       }
       // nbc has no integration to install for this agent.
       if (!adapter) return;
+      // The CLI's integration installer also installs Clawbrowser if it is
+      // absent. A background agent connection must not launch Windows setup.
+      if (!(await invoke<boolean>("browser_runtime_available", { runtime: "clawbrowser" }).catch(() => false))) return;
       // Installation is idempotent. Keep connection fast and refresh the
       // agent's bundled nextctl skill/integration in the background.
       void nextctlRun(["install", "--agent", adapter, "--no-api-key-prompt"], undefined, { timeoutMs: NEXTCTL_INSTALL_TIMEOUT_MS }).then((result) => {
@@ -5129,13 +5274,29 @@ export const useStore = create<State>((set, get) => {
     } catch { /* A failed status command is not evidence of a login. */ }
   },
 
-  setTab: (t) => {
+  setTab: (t, miniApp) => {
+    if (isUtilityDialogTab(t)) {
+      set({ utilityDialog: t, ...(t !== "connectors" ? { connectorPrompt: undefined } : {}) });
+      trackEvent("utility_dialog_opened", { dialog: t });
+      return;
+    }
     const previousTab = get().tab;
-    if (previousTab === t) return;
+    if (t === "mini-apps" || previousTab === "mini-apps") set({ selectedMiniApp: t === "mini-apps" ? miniApp : undefined });
+    if (previousTab === t) { if (get().utilityDialog) get().closeUtilityDialog(); return; }
     trackEvent("tab_opened", { tab: t, previous_tab: previousTab });
     trackScreenView(t, { source: "tab_opened", previous_tab: previousTab });
-    set({ tab: t });
+    set({ tab: t, utilityDialog: undefined, ...(get().utilityDialog === "connectors" ? { connectorPrompt: undefined } : {}) });
   },
+  openLiveSession: (key) => {
+    set({ liveSession: { workspaceId: get().activeWorkspaceId, key } });
+    get().setTab("live");
+  },
+  showLiveOverview: () => {
+    set({ liveSession: undefined });
+    get().setTab("live");
+  },
+  closeUtilityDialog: () => set(state => ({ utilityDialog: undefined,
+    ...(state.utilityDialog === "connectors" ? { connectorPrompt: undefined } : {}) })),
   setAppActive: (v) => {
     const wasActive = get().appActive;
     set({ appActive: v });
@@ -5145,6 +5306,11 @@ export const useStore = create<State>((set, get) => {
     }
   },
   setProfileSearch: (q) => set({ profileSearch: q }),
+  toggleProfileNameSort: () => {
+    const direction = get().profileNameSort === "asc" ? "desc" : "asc";
+    settingsStorage.setItem("nextbrowser.profileNameSort", direction);
+    set({ profileNameSort: direction });
+  },
   setSidebarWidth: (w) => {
     settingsStorage.setItem("sidebarWidth", String(w));
     set({ sidebarWidth: w });
@@ -5213,7 +5379,7 @@ export const useStore = create<State>((set, get) => {
   openConnectorPrompt: (id, resume) => {
     const returnTab = get().tab;
     trackEvent("connector_prompt_opened", { connector: id, resume: resume ?? "none" });
-    set({ tab: "connectors", connectorPrompt: { id, returnTab, resume } });
+    set({ utilityDialog: "connectors", connectorPrompt: { id, returnTab, resume } });
   },
   clearConnectorPrompt: () => set({ connectorPrompt: undefined }),
   completeConnectorPrompt: () => {
@@ -5222,7 +5388,7 @@ export const useStore = create<State>((set, get) => {
     if (!prompt?.resume) return;
     // Hand the person back to the flow that sent them to the connector so a
     // one-time setup never costs them the profile they were creating.
-    set({ tab: prompt.returnTab ?? "chat" });
+    set({ tab: prompt.returnTab ?? "chat", utilityDialog: undefined });
     window.dispatchEvent(new CustomEvent(CONNECTOR_PROMPT_RESUMED_EVENT, {
       detail: { connector: prompt.id, resume: prompt.resume },
     }));
@@ -5386,7 +5552,7 @@ export const useStore = create<State>((set, get) => {
   },
 
   syncProjects: async () => {
-    if (!get().authed || get().projectsSyncing) return;
+    if (workspaceResetPending || !get().authed || get().projectsSyncing) return;
     const epoch = accountEpoch;
     set({ projectsSyncing: true });
     const initialWorkspaces = get().workspaces;
@@ -5543,11 +5709,14 @@ export const useStore = create<State>((set, get) => {
           workspaceId: cloud.workspace_id,
         });
         if (index < 0) conversations.push(normalized);
-        else if (shouldApplyRemoteConversation(
-          conversations[index],
-          normalized,
-          Date.parse(cloud.updated_at),
-        )) conversations[index] = normalized;
+        else {
+          const local = conversations[index];
+          const remoteTime = Date.parse(cloud.updated_at);
+          const takeRemote = shouldApplyRemoteConversation(local, normalized, remoteTime);
+          const merged = takeRemote ? mergeSessionName(normalized, local) : mergeSessionName(local, normalized);
+          conversations[index] = merged.sessionTitle && (merged.sessionTitle !== normalized.sessionTitle || merged.sessionTitleEditedAt !== normalized.sessionTitleEditedAt)
+            ? { ...merged, updatedAt: Math.max(merged.updatedAt, remoteTime + 1) } : merged;
+        }
       }
 
       // Profile creation can change workspace membership while the network
@@ -5738,6 +5907,39 @@ export const useStore = create<State>((set, get) => {
     });
   },
 
+  resetWorkspaceData: async (confirmation, onProgress) => {
+    if (confirmation !== "DROP") throw new Error("Type DROP to confirm.");
+    if (workspaceResetPending) throw new Error("Nextbrowser is already resetting its data.");
+    if (get().loggingOut || defaultSetupInFlight || deletingWorkspaceIds.size) {
+      throw new Error("Wait for the current workspace or account change to finish, then retry.");
+    }
+    workspaceResetPending = true;
+    const previousHandoff = scheduleHandoff;
+    scheduleHandoff = true;
+    try {
+      onProgress("Stopping local browser sessions and waiting for sync…");
+      const deadline = Date.now() + 30_000;
+      await workspaceMutationQueue;
+      while (get().projectsSyncing && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      if (get().projectsSyncing) throw new Error("Workspace sync is still running. Try the reset again shortly.");
+      for (const profile of get().profiles) {
+        if (pendingProfileStarts.has(profile.name) || ["running", "starting", "rotating", "stopping"].includes(get().statuses[profile.name])) {
+          await get().stopProfile(profile.name);
+        }
+      }
+      if (get().defaultSession?.status === "running") await get().stopDefaultSession();
+      await Promise.all([flushConversations(), scheduleWriteTail]);
+      onProgress("Deleting cloud workspaces and preparing the local reset…");
+      await invoke("workspace_emergency_reset", { confirmation, connected: get().authed });
+    } catch (error) {
+      workspaceResetPending = false;
+      scheduleHandoff = previousHandoff;
+      throw error;
+    }
+  },
+
   deleteWorkspace: async (id, onProgress) => {
     if (!get().workspaces.some((workspace) => workspace.id === id)) throw new Error("The workspace no longer exists.");
     if (deletingWorkspaceIds.has(id)) throw new Error("This workspace is already being deleted.");
@@ -5760,10 +5962,14 @@ export const useStore = create<State>((set, get) => {
       const exclusiveNames = [...new Set(target.profileNames)].filter((name) =>
         !get().workspaces.some((workspace) => workspace.id !== id && workspace.profileNames.includes(name)));
       try {
-        for (const [index, name] of exclusiveNames.entries()) {
-          onProgress?.(`Stopping and removing profiles ${index + 1}/${exclusiveNames.length}…`);
+        let completed = 0;
+        onProgress?.(`Stopping and removing profiles 0/${exclusiveNames.length}…`);
+        // Bound process/filesystem pressure and wait for active removals on
+        // failure. A retry must never race leftovers from the failed attempt.
+        await forEachConcurrent(exclusiveNames, 3, async (name) => {
           await get().deleteProfile(name, { deletingWorkspace: true });
-        }
+          onProgress?.(`Stopping and removing profiles ${++completed}/${exclusiveNames.length}…`);
+        });
       } finally {
         // Also refresh after a partial failure so a retry sees the actual
         // remaining profiles. The next attempt tolerates PROFILE_NOT_FOUND.
@@ -5842,7 +6048,7 @@ export const useStore = create<State>((set, get) => {
   // a first project, and one profile per browser toolset. The manual gate is
   // kept only as a fallback when this cannot complete.
   ensureDefaultWorkspaceSetup: async () => {
-    if (!get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
+    if (workspaceResetPending || !get().authed || !get().nextctlAvailable || pendingTarget(get(), "vps")) return;
     if (defaultSetupInFlight) return;
     // Defaults belong to first-account setup only. Empty workspaces and
     // deleted defaults are intentional and must never be repopulated.
@@ -5924,7 +6130,41 @@ export const useStore = create<State>((set, get) => {
     }
   },
 
+  moveProjectTreeItem: (event) => {
+    const state = get();
+    if (state.activeWorkspaceId && deletingWorkspaceIds.has(state.activeWorkspaceId)) throw new Error("This workspace is being deleted.");
+    const conversations = applyProjectDrop(state.conversations, state.activeWorkspaceId, event, now());
+    persistConvs(conversations);
+    set({ conversations });
+  },
+
+  createProjectSession: (projectId, requestedAgentId) => {
+    const state = get();
+    const source = state.conversations.find(item => item.id === projectId);
+    const project = source && projectRoot(source, state.conversations);
+    if (!project || project.workspaceId !== state.activeWorkspaceId || (project.workspaceId && deletingWorkspaceIds.has(project.workspaceId))) return "";
+    const agent = requestedAgentId ?? source!.agent;
+    if (!AGENTS.some(item => item.id === agent) || (isBuiltinAgent(agent) && project.executionTarget === "vps")) return "";
+    const count = state.conversations.filter(item => item.projectId === project.id).length + 2;
+    const session: Conversation = {
+      id: uid(), title: `Session ${count}`, agent, messages: [], createdAt: now(), updatedAt: now(),
+      projectId: project.id, workspaceId: project.workspaceId, chatMode: "chat",
+      executionTarget: project.executionTarget, vpsConnectionInstructions: project.vpsConnectionInstructions,
+      vpsConnectionLabel: project.vpsConnectionLabel,
+    };
+    const conversations = [...state.conversations, session];
+    persistConvs(conversations);
+    set({ conversations });
+    get().selectConversation(session.id);
+    if (!(state.tab === "live" && state.liveSession && state.liveSession.workspaceId === state.activeWorkspaceId)) get().setTab("chat");
+    trackEvent("chat_created", { agent, project_id: project.id });
+    return session.id;
+  },
+
   newChat: () => {
+    const current = get().activeConversation();
+    const project = current && projectRoot(current, get().conversations);
+    if (project && project.workspaceId === get().activeWorkspaceId) return get().createProjectSession(current!.id);
     const agentId = get().agentId;
     const workspaceId = get().activeWorkspaceId;
     if (workspaceId && deletingWorkspaceIds.has(workspaceId)) throw new Error("This workspace is being deleted.");
@@ -5955,11 +6195,14 @@ export const useStore = create<State>((set, get) => {
   },
 
   createProject: (name, requestedMode, selectedAgentId) => {
-    const agentId = selectedAgentId ?? get().agentId;
-    if (!AGENTS.some((agent) => agent.id === agentId)) return "";
+    const state = get();
+    const agentId = selectedAgentId ?? state.agentId;
+    if (!AGENTS.some((agent) => agent.id === agentId)) throw new Error("Choose an available agent for the project.");
     const mode = agentSupportsTerminal(agentId) ? requestedMode : "chat";
-    const workspaceId = get().activeWorkspaceId;
-    if (!workspaceId || deletingWorkspaceIds.has(workspaceId)) return "";
+    const workspaceId = state.activeWorkspaceId;
+    // Local chats/projects are valid before the user connects a workspace.
+    // Keep the same undefined-workspace scope used by newChat and ProjectTree.
+    if (workspaceId && deletingWorkspaceIds.has(workspaceId)) throw new Error("This workspace is being deleted. Choose another workspace and try again.");
     const cleanName = validateEntityName("project", name);
     const c: Conversation = {
       id: uid(),
@@ -5982,7 +6225,7 @@ export const useStore = create<State>((set, get) => {
       conversations,
       activeConvId: { ...get().activeConvId, [agentId]: c.id },
       terminalChat: mode === "terminal",
-      tab: "chat",
+      tab: state.tab === "live" && state.liveSession && state.liveSession.workspaceId === workspaceId ? "live" : "chat",
     });
     get().selectConversation(c.id);
     trackEvent("project_created", { agent: agentId, mode });
@@ -6133,6 +6376,18 @@ export const useStore = create<State>((set, get) => {
     return true;
   },
 
+  rememberConversationProfile: (id, name, toolset) => {
+    const state = get();
+    const conversation = state.conversations.find(c => c.id === id);
+    const workspace = state.workspaces.find(w => w.id === conversation?.workspaceId);
+    if (!conversation || !workspace?.profileNames.includes(name) || (workspace.profileToolsets[name] || "clawbrowser") !== toolset) return;
+    if (conversation.profileNames?.includes(name) && conversation.profileToolsets?.[name] === toolset) return;
+    const conversations = state.conversations.map(c => c.id !== id ? c : { ...c,
+      profileNames: [...new Set([...(c.profileNames || []), name])], profileToolsets: { ...c.profileToolsets, [name]: toolset }, updatedAt: editedAt(c.updatedAt),
+    });
+    persistConvs(conversations); set({ conversations });
+  },
+
   selectConversation: (id) => {
     const project = get().conversations.find((conversation) => conversation.id === id);
     if (!project) return;
@@ -6155,10 +6410,20 @@ export const useStore = create<State>((set, get) => {
     if (!t) return;
     set((s) => {
       const conversations = s.conversations.map((c) =>
-        c.id === id ? { ...c, title: t, updatedAt: now() } : c,
+        c.id === id ? { ...(c.projectId ? { ...namedSession(c, t), sessionTitleEditedAt: now() } : c), title: t, updatedAt: now() } : c,
       );
       persistConvs(conversations);
       trackEvent("chat_renamed", { agent: get().agentId });
+      return { conversations };
+    });
+  },
+
+  renameSession: (id, title) => {
+    const name = validateEntityName("session", title);
+    set(state => {
+      const conversations = state.conversations.map(session => session.id === id
+        ? { ...namedSession(session, name), sessionTitleEditedAt: now(), updatedAt: now() } : session);
+      persistConvs(conversations);
       return { conversations };
     });
   },
@@ -6263,6 +6528,7 @@ export const useStore = create<State>((set, get) => {
       createdAt: now(),
       updatedAt: now(),
       parentId: conv.id,
+      projectId: conv.projectId ?? conv.id,
       forkedFromMessageId: atMessageId,
       executionTarget: conv.executionTarget,
       vpsConnectionInstructions: conv.vpsConnectionInstructions,

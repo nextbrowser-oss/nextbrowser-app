@@ -8,16 +8,19 @@
 
 const PROVIDERS = Object.freeze({
   nvidia: Object.freeze({ id: "nvidia", name: "NVIDIA", baseURL: "https://integrate.api.nvidia.com/v1", keyRequired: true }),
-  openrouter: Object.freeze({ id: "openrouter", name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", keyRequired: true }),
+  openrouter: Object.freeze({ id: "openrouter", name: "OpenRouter", baseURL: "", keyRequired: false }),
+  deepseek: Object.freeze({ id: "deepseek", name: "DeepSeek", baseURL: "https://api.deepseek.com", keyRequired: true }),
+  anthropic: Object.freeze({ id: "anthropic", name: "Anthropic", baseURL: "https://api.anthropic.com/v1", keyRequired: true }),
   gemini: Object.freeze({ id: "gemini", name: "Google Gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", keyRequired: true }),
   custom: Object.freeze({ id: "custom", name: "Custom provider", baseURL: "", keyRequired: false }),
 });
-const DEFAULT_PROVIDER = "nvidia";
+const DEFAULT_PROVIDER = "openrouter";
 // Used when the provider's model list cannot be read.
 const FALLBACK_MODELS = Object.freeze({
-  nvidia: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-  openrouter: "openrouter/free",
+  nvidia: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+  openrouter: "nvidia/nemotron-3.5-super-vl:free",
   gemini: "gemini-2.5-flash",
+  deepseek: "deepseek-flash",
 });
 const OPENROUTER_FREE_ROUTER = "openrouter/free";
 const MODEL_ID_MAX = 200;
@@ -66,17 +69,26 @@ function cleanModelId(value) {
  * The provider, base URL and model from the saved settings. Throws a
  * user-facing message when something the run needs is missing.
  */
-function resolveProviderSettings(settings = {}) {
+function resolveProviderSettings(settings = {}, managedProviderURL) {
   const preset = PROVIDERS[settings.provider] || PROVIDERS[DEFAULT_PROVIDER];
-  const baseURL = preset.id === "custom" ? normalizeBaseURL(settings.baseURL) : preset.baseURL;
+  const managedNvidia = preset.id === "nvidia" && managedProviderURL !== undefined;
+  const baseURL = preset.id === "openrouter" || managedNvidia ? managedProviderURL
+    : preset.id === "custom" ? normalizeBaseURL(settings.baseURL) : preset.baseURL;
   if (!baseURL) {
     throw new ProviderError("not_configured", "Enter the base URL of your provider in Settings → Agent.", { expected: true });
   }
-  const model = cleanModelId(settings.model);
+  const savedModel = cleanModelId(settings.model);
+  const model = preset.id === "nvidia" && (managedNvidia || !savedModel) ? FALLBACK_MODELS.nvidia
+    : preset.id === "openrouter" && !savedModel ? FALLBACK_MODELS.openrouter
+    : preset.id === "openrouter" && !isFreeOpenRouterModel(savedModel) ? OPENROUTER_FREE_ROUTER : savedModel;
   if (!model) {
     throw new ProviderError("not_configured", "Pick a model for the Nextbrowser agent in Settings → Agent.", { expected: true });
   }
-  return { provider: preset.id, providerName: preset.name, baseURL, model, keyRequired: preset.keyRequired };
+  return { provider: preset.id, providerName: preset.name, baseURL, model, keyRequired: preset.keyRequired || preset.id === "openrouter" };
+}
+
+function isFreeOpenRouterModel(id) {
+  return id === OPENROUTER_FREE_ROUTER || id.endsWith(":free");
 }
 
 /** Replaces anything shaped like an API key, and the key itself, before a provider's text is shown. */
@@ -121,10 +133,33 @@ const TOOL_SUPPORT_REJECTED = /(?:does not|doesn't|do not|not)\s+support(?:ed)?\
 const CONTEXT_TOO_LONG = /context (?:length|window)|maximum context|too many tokens|prompt is too long|input is too long|reduce the length/i;
 
 /** Turns a provider's failed answer into a ProviderError the chat can show. */
-function classifyProviderFailure({ status, body, rawText, providerName, model, secret, retryAfter }) {
+function classifyProviderFailure({ status, body, rawText, provider, providerName, model, secret, retryAfter, managed }) {
   const detail = redactSecrets(oneLine(providerMessage(body, rawText)), secret);
   const name = providerName || "The provider";
   const options = { status, expected: true };
+  if (managed && provider === "nvidia" && body?.code === "nvidia_credential_rejected") {
+    return new ProviderError("tools_unavailable", "NVIDIA denied access for Nextbrowser's shared account. Contact Nextbrowser support or choose another provider.", { status });
+  }
+  if (managed && provider === "nvidia" && body?.code === "nvidia_model_unavailable") {
+    return new ProviderError("model_not_found", "The managed NVIDIA model is unavailable. Choose another provider or contact Nextbrowser support.", { status });
+  }
+  if (managed && provider === "nvidia" && (status === 401 || status === 403)) {
+    return new ProviderError("auth", status === 401 ? "Sign in again to Nextbrowser to use NVIDIA." : "Your Nextbrowser account does not have access to NVIDIA.", options);
+  }
+  if (provider === "openrouter") {
+    if (status === 401) {
+      return new ProviderError("auth", "Sign in again to Nextbrowser to use free OpenRouter models.", options);
+    }
+    if (status === 403) {
+      return new ProviderError("auth", "Your Nextbrowser account does not have access to free OpenRouter models.", options);
+    }
+    if (body?.code === "not_found" && status === 404) {
+      return new ProviderError("server", "Free OpenRouter models are not available on this Nextbrowser server yet.", { status });
+    }
+    if (body?.code === "openrouter_unavailable") {
+      return new ProviderError("server", "Free OpenRouter models are temporarily unavailable on the Nextbrowser server. Try again later.", { status });
+    }
+  }
   if (TOOL_SUPPORT_REJECTED.test(detail)) {
     return new ProviderError("no_tools", `The model “${model}” cannot call tools, and the Nextbrowser agent needs them to use the browser. Pick another model in Settings → Agent.`, options);
   }
@@ -138,6 +173,9 @@ function classifyProviderFailure({ status, body, rawText, providerName, model, s
     return new ProviderError("payment", `${name} needs credits for “${model}”. Pick a free model in Settings → Agent.`, options);
   }
   if (status === 404) {
+    if (name === "OpenRouter" && body?.code === "model_not_found") {
+      return new ProviderError("model_not_found", `“${model}” is unavailable in Nextbrowser. Choose a different free model in the chat’s model picker and retry.`, options);
+    }
     return new ProviderError("model_not_found", `${name} has no model “${model}”. Pick another model in Settings → Agent.`, options);
   }
   if (status === 413 || CONTEXT_TOO_LONG.test(detail)) {
@@ -190,7 +228,7 @@ async function fetchWithin(fetchImpl, url, init, { signal, timeoutMs, providerNa
  * A client for one provider. `apiKey` may be empty for a local server
  * (Ollama, LM Studio) that needs none.
  */
-function createProviderClient({ provider, providerName, baseURL, apiKey = "", fetchImpl = (...args) => fetch(...args) }) {
+function createProviderClient({ provider, providerName, baseURL, apiKey = "", managed = false, fetchImpl = (...args) => fetch(...args) }) {
   const name = providerName || PROVIDERS[provider]?.name || "The provider";
   const headers = {
     accept: "application/json",
@@ -201,6 +239,13 @@ function createProviderClient({ provider, providerName, baseURL, apiKey = "", fe
   };
   return {
     async chat(body, { signal, timeoutMs = 120_000 } = {}) {
+      // Claude's compatibility endpoint requires an output budget. Newer
+      // Claude models reject non-default sampling temperatures.
+      if (provider === "anthropic") {
+        body = { max_tokens: 4096, ...body };
+        delete body.temperature;
+        delete body.top_p;
+      }
       const { response, text } = await fetchWithin(fetchImpl, `${baseURL}/chat/completions`, {
         method: "POST",
         headers,
@@ -208,12 +253,12 @@ function createProviderClient({ provider, providerName, baseURL, apiKey = "", fe
       }, { signal, timeoutMs, providerName: name });
       const parsed = parseJSON(text);
       if (!response.ok) {
-        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), providerName: name, model: body.model, secret: apiKey, retryAfter: retryAfterMs(response) });
+        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), provider, providerName: name, model: body.model, secret: apiKey, retryAfter: retryAfterMs(response), managed });
       }
       // OpenRouter answers some upstream failures with HTTP 200 and an error body.
       if (parsed?.error && !Array.isArray(parsed?.choices)) {
         const status = Number(parsed.error.code) || 502;
-        throw classifyProviderFailure({ status, body: parsed, rawText: "", providerName: name, model: body.model, secret: apiKey });
+        throw classifyProviderFailure({ status, body: parsed, rawText: "", provider, providerName: name, model: body.model, secret: apiKey, managed });
       }
       const message = parsed?.choices?.[0]?.message;
       if (!message || typeof message !== "object") {
@@ -223,13 +268,13 @@ function createProviderClient({ provider, providerName, baseURL, apiKey = "", fe
     },
 
     async listModels({ signal, timeoutMs = 20_000 } = {}) {
-      const { response, text } = await fetchWithin(fetchImpl, `${baseURL}/models`, {
+      const { response, text } = await fetchWithin(fetchImpl, `${baseURL}/models${provider === "anthropic" ? "?limit=1000" : ""}`, {
         method: "GET",
-        headers: { accept: "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+        headers: { accept: "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}), ...(provider === "anthropic" ? { "anthropic-version": "2023-06-01" } : {}) },
       }, { signal, timeoutMs, providerName: name });
       const parsed = parseJSON(text);
       if (!response.ok) {
-        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), providerName: name, model: "", secret: apiKey });
+        throw classifyProviderFailure({ status: response.status, body: parsed, rawText: text.slice(0, ERROR_BODY_LIMIT), provider, providerName: name, model: "", secret: apiKey, managed });
       }
       const list = Array.isArray(parsed?.data) ? parsed.data : Array.isArray(parsed?.models) ? parsed.models : [];
       return list
@@ -252,7 +297,7 @@ function describeModel(provider, item) {
     id,
     vision: Array.isArray(modalities) ? modalities.includes("image") : VISION_MODEL.test(id),
     ...(Array.isArray(parameters) ? { tools: parameters.includes("tools") } : {}),
-    ...(provider === "openrouter" ? { free: id.endsWith(":free") || id === OPENROUTER_FREE_ROUTER } : {}),
+    ...(provider === "openrouter" ? { free: isFreeOpenRouterModel(id) } : {}),
   };
 }
 
@@ -278,7 +323,7 @@ function nvidiaRank(id) {
 /**
  * The model to preselect from a provider's list. NVIDIA: a chat Nemotron
  * model, Super before Ultra before Nano, the newest of that size first.
- * OpenRouter: its free router, else a free model that lists tool support.
+ * OpenRouter: prefer Nemotron Super when available, then its free router.
  * Gemini: the newest plain Flash model.
  */
 function defaultModelFor(provider, models = []) {
@@ -292,7 +337,8 @@ function defaultModelFor(provider, models = []) {
     return nemotron[0]?.id || FALLBACK_MODELS.nvidia;
   }
   if (provider === "openrouter") {
-    if (!ids.length || ids.includes(OPENROUTER_FREE_ROUTER)) return OPENROUTER_FREE_ROUTER;
+    if (!ids.length || models.some(item => item.id === FALLBACK_MODELS.openrouter && item.tools !== false)) return FALLBACK_MODELS.openrouter;
+    if (ids.includes(OPENROUTER_FREE_ROUTER)) return OPENROUTER_FREE_ROUTER;
     const free = models.filter((item) => item.free && item.tools !== false);
     return free.find((item) => item.tools)?.id || free[0]?.id || OPENROUTER_FREE_ROUTER;
   }
@@ -302,18 +348,19 @@ function defaultModelFor(provider, models = []) {
       .sort((a, b) => b.localeCompare(a, "en", { numeric: true }));
     return flash[0] || ids.find((id) => /flash/.test(id) && !/lite|image|tts|live|audio/.test(id)) || FALLBACK_MODELS.gemini;
   }
+  if (provider === "deepseek") return ids.includes("deepseek-flash") ? "deepseek-flash" : ids[0] || FALLBACK_MODELS.deepseek;
   return ids[0] || "";
 }
 
 /**
  * The models worth offering for a provider: chat models only for NVIDIA, the
- * free ones (and the free router) for OpenRouter, Gemini's Gemini models.
+ * free tool-capable ones for OpenRouter, Gemini's Gemini models.
  */
 function offeredModels(provider, models = []) {
   if (provider === "nvidia") return models.filter((item) => !NVIDIA_NOT_CHAT.test(item.id));
   if (provider === "openrouter") {
-    const free = models.filter((item) => item.free && item.tools !== false);
-    return [{ id: OPENROUTER_FREE_ROUTER, vision: false, free: true }, ...free.filter((item) => item.id !== OPENROUTER_FREE_ROUTER)];
+    const chat = models.filter((item) => item.free && item.tools !== false);
+    return [{ id: OPENROUTER_FREE_ROUTER, vision: false, free: true }, ...chat.filter((item) => item.id !== OPENROUTER_FREE_ROUTER)];
   }
   if (provider === "gemini") return models.filter((item) => /^gemini-/.test(item.id) && !/embedding|aqa|imagen|veo|tts|live/i.test(item.id));
   return models;
@@ -366,6 +413,7 @@ module.exports = {
   DEFAULT_PROVIDER,
   FALLBACK_MODELS,
   OPENROUTER_FREE_ROUTER,
+  isFreeOpenRouterModel,
   PROVIDERS,
   ProviderError,
   classifyProviderFailure,

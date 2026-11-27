@@ -1,3 +1,5 @@
+import { translate } from "../shared/lib/i18n";
+import { Tooltip } from "../shared/ui";
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import {
@@ -114,29 +116,27 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
   return (
     <div className="skills-root">
       <SkillsNavigation selected={category} onSelect={setCategory} items={[
-        { id: "__skills__", label: "All skills", count: skillCount },
-        { id: "my-skills", label: "My skills", count: s.localSkills.length + s.privateCloudSkills.filter((cloud) => !s.localSkills.some((local) => local.serverSlug === cloud.id)).length },
+        { id: "__skills__", get label() { return translate("All skills"); }, count: skillCount },
+        { id: "my-skills", get label() { return translate("My skills"); }, count: s.localSkills.length + s.privateCloudSkills.filter((cloud) => !s.localSkills.some((local) => local.serverSlug === cloud.id)).length },
         ...categories.map((item) => ({ id: item.id, label: item.title, count: item.entries.length })),
-        { id: "my-scripts", label: "Scripts", count: publishedScripts.length + s.customScripts.length },
+        { id: "my-scripts", get label() { return translate("Scripts"); }, count: publishedScripts.length + s.customScripts.length },
       ]} />
       <div className="skills-main" id="skills-panel" role="tabpanel" aria-labelledby={`skills-tab-${category}`} tabIndex={0}>
         <div className="skills-main-head">
           <h2 className="skills-category-title">
             <Icon name={isScripts ? "scroll.fill" : isMySkills ? "person.crop.circle" : cat?.icon ?? "sparkles"} size={22} className="accent-icon" />
-            {isScripts ? "Scripts" : isMySkills ? "My skills" : cat?.title ?? "Skills"}
+            {isScripts ? translate("Scripts") : isMySkills ? translate("My skills") : cat?.title ?? translate("Skills")}
           </h2>
           <p className="muted">
             {isScripts
-              ? "Quick reusable commands for common browser tasks."
+              ? translate("Quick reusable commands for common browser tasks.")
               : isMySkills
-                ? "Browser workflows saved locally on this device."
-              : cat?.blurb ?? "Extend your agents with reusable browser capabilities."}
+                ? translate("Browser workflows saved locally on this device.")
+              : cat?.blurb ?? translate("Extend your agents with reusable browser capabilities.")}
           </p>
           {!isScripts && !isMySkills && (
             <p className="skills-apply-hint muted small">
-              <Icon name="arrow.down.circle" size={14} />
-              Applied skills work with any connected agent.
-            </p>
+              <Icon name="arrow.down.circle" size={14} />{translate("Applied skills work with any connected agent.")}</p>
           )}
         </div>
 
@@ -144,10 +144,8 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
           <div className="warning-banner skills-warning">
             <Icon name="exclamationmark.triangle.fill" size={16} />
             <div>
-              <strong>Skills need an updated Nextbrowser component.</strong>
-              <div className="muted small">
-                Update Nextbrowser and try again.
-              </div>
+              <strong>{translate("Skills need an updated Nextbrowser component.")}</strong>
+              <div className="muted small">{translate("Update Nextbrowser and try again.")}</div>
             </div>
           </div>
         )}
@@ -155,20 +153,18 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
           <div className="skills-connect-hint">
             <Icon name="bolt.fill" size={16} />
             <div>
-              <strong>Connect an agent to install and run skills.</strong>
-              <div className="muted small">Skills work with any connected agent.</div>
+              <strong>{translate("Connect an agent to install and run skills.")}</strong>
+              <div className="muted small">{translate("Skills work with any connected agent.")}</div>
             </div>
-            <button className="btn-bordered-prominent" onClick={onOpenAgentSettings}>
-              Connect agent
-            </button>
+            <button className="btn-bordered-prominent" onClick={onOpenAgentSettings}>{translate("Connect agent")}</button>
           </div>
         )}
 
         {!isScripts && !isMySkills && visibleEntries.length === 0 && (
           <div className="skills-empty-state">
             <span className="skills-empty-icon"><Icon name="sparkles" size={22} /></span>
-            <strong>No skills available yet</strong>
-            <span className="muted small">Published skills will appear here and work with any connected agent.</span>
+            <strong>{translate("No skills available yet")}</strong>
+            <span className="muted small">{translate("Published skills will appear here and work with any connected agent.")}</span>
           </div>
         )}
 
@@ -188,18 +184,17 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   <SkillLogo entry={e} />
                   <div className="skill-card-titles">
                     <div className="skill-title">{e.title}</div>
-                    {repositorySkill && e.author && <div className="small muted skill-author">by {authorLabel(e.author)}</div>}
+                    {repositorySkill && e.author && <div className="small muted skill-author">{translate("by")} {authorLabel(e.author)}</div>}
                   </div>
                   {!repositorySkill && (
                     <span className={"mode-badge" + (e.js ? " instant" : " agent")}>
                       <Icon name={e.js ? "bolt.fill" : publishedScript ? "scroll.fill" : "sparkles"} size={10} />
-                      {e.js ? "Instant" : publishedScript ? "Script" : "Agent"}
+                      {e.js ? translate("Instant") : publishedScript ? translate("Script") : translate("Agent")}
                     </span>
                   )}
                   {running && (
-                    <span className="skill-running small" title={`Checking every ${running} min`}>
-                      <span className="status-dot ok-dot" /> Running
-                    </span>
+                    <Tooltip content={translate("Checking every %1 min", running)}><span className="skill-running small">
+                      <span className="status-dot ok-dot" /> {translate("Running")}</span></Tooltip>
                   )}
                 </div>
                 <div className="skill-desc small">{e.subtitle}</div>
@@ -213,39 +208,33 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                   ) : null
                 ) : (
                   <div className="skill-meta small">
-                    <span className="skill-meta-chip" title={targetText(e)}>
+                    <Tooltip content={targetText(e)}><span className="skill-meta-chip">
                       <Icon
                         name={selectorTargetHost(e.selector) ? "arrow.right.circle" : "play.circle"}
                         size={11}
                       />
                       {targetChip(e)}
-                    </span>
+                    </span></Tooltip>
                   </div>
                 )}
-                {publishedScript && st === "idle" && <div className="small muted skill-status">Not added</div>}
+                {publishedScript && st === "idle" && <div className="small muted skill-status">{translate("Not added")}</div>}
                 {publishedScript && status[e.id] === "adding to script menu…" && (
-                  <div className="small muted skill-status">Adding to script menu…</div>
+                  <div className="small muted skill-status">{translate("Adding to script menu…")}</div>
                 )}
                 {publishedScript && st === "installed" && (
                   <div className="small ok skill-status">
-                    <Icon name="checkmark.seal.fill" size={12} />
-                    Added to script menu
-                  </div>
+                    <Icon name="checkmark.seal.fill" size={12} />{translate("Added to script menu")}</div>
                 )}
                 {!publishedScript && !repositorySkill && (
                   <>
-                    {st === "idle" && <div className="small muted skill-status">Not installed</div>}
-                    {st === "applying" && <div className="small muted skill-status">Pulling from API…</div>}
+                    {st === "idle" && <div className="small muted skill-status">{translate("Not installed")}</div>}
+                    {st === "applying" && <div className="small muted skill-status">{translate("Pulling from API…")}</div>}
                     {st === "installed" && (
                       <div className="small ok skill-status">
-                        <Icon name="checkmark.seal.fill" size={12} />
-                        Installed
-                      </div>
+                        <Icon name="checkmark.seal.fill" size={12} />{translate("Installed")}</div>
                     )}
                     {st === "failed" && (
-                      <div className="small error skill-status">
-                        Apply failed
-                        {applyError && (
+                      <div className="small error skill-status">{translate("Apply failed")}{applyError && (
                           <div className="skill-error-detail">
                             <UserFacingError message={applyError} surface="skill_apply" />
                           </div>
@@ -260,33 +249,26 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                     // stop and the accounts all live there, so the card opens it
                     // instead of offering a second way to run.
                     e.watchlist ? (
-                      <button className="btn-bordered-prominent full" title={e.watchlist.title} onClick={() => setWatchlistSkill(e)}>
-                        <Icon name="person.crop.circle" size={13} /> Open
-                      </button>
+                      <Tooltip content={e.watchlist.title}><button className="btn-bordered-prominent full" onClick={() => setWatchlistSkill(e)}>
+                        <Icon name="person.crop.circle" size={13} /> {translate("Open")}</button></Tooltip>
                     ) : (
-                      <button className="btn-bordered-prominent full" disabled={!ready} title={`Run ${e.title} in chat`} onClick={() => setCatalogRun(e)}>
-                        <Icon name="play.fill" size={13} /> Run
-                      </button>
+                      <Tooltip content={translate("Run %1 in chat", e.title)}><button className="btn-bordered-prominent full" disabled={!ready} onClick={() => setCatalogRun(e)}>
+                        <Icon name="play.fill" size={13} /> {translate("Run")}</button></Tooltip>
                     )
                   ) : e.js ? (
-                    <button className="btn-bordered-prominent full" title={`Run ${e.title}`} onClick={() => s.runScript(e)}>
-                      <Icon name="bolt.fill" size={14} />
-                      Run
-                    </button>
+                    <Tooltip content={translate("Run %1", e.title)}><button className="btn-bordered-prominent full" onClick={() => s.runScript(e)}>
+                      <Icon name="bolt.fill" size={14} />{translate("Run")}</button></Tooltip>
                   ) : (
                     <>
-                      <button className="btn-bordered-prominent full" disabled={st === "applying"} title={`${st === "installed" ? "Re-apply" : "Apply"} ${e.title}`} onClick={() => apply(e)}>
-                        {st === "applying" ? "Applying…" : publishedScript && st === "installed" ? "Applied" : st === "installed" ? "Re-apply" : "Apply"}
-                      </button>
+                      <Tooltip content={`${st === "installed" ? "Re-apply" : "Apply"} ${e.title}`}><button className="btn-bordered-prominent full" disabled={st === "applying"} onClick={() => apply(e)}>
+                        {st === "applying" ? translate("Applying…") : publishedScript && st === "installed" ? translate("Applied") : st === "installed" ? translate("Re-apply") : translate("Apply")}
+                      </button></Tooltip>
                       {!publishedScript && (st === "installed" || status[e.id]?.startsWith("installed")) && (
-                        <button
+                        <Tooltip content={translate("Run %1 in chat", e.title)}><button
                           className="btn-bordered full"
                           disabled={!ready}
-                          title={`Run ${e.title} in chat`}
                           onClick={() => setCatalogRun(e)}
-                        >
-                          Run
-                        </button>
+                        >{translate("Run")}</button></Tooltip>
                       )}
                     </>
                   )}
@@ -305,8 +287,8 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
           s.localSkills.length === 0 && s.privateCloudSkills.length === 0 ? (
             <div className="skills-empty-state">
               <span className="skills-empty-icon"><Icon name="sparkles" size={22} /></span>
-              <strong>No local skills yet</strong>
-              <span className="muted small">After a successful browser task, use “Save as skill” below the answer.</span>
+              <strong>{translate("No local skills yet")}</strong>
+              <span className="muted small">{translate("After a successful browser task, use “Save as skill” below the answer.")}</span>
             </div>
           ) : (
             <div className="skills-grid">
@@ -329,11 +311,11 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                     <div className="skill-card-head">
                       <Icon name="sparkles" size={16} className="accent-icon" />
                       <div className="skill-title">{skill.title}</div>
-                      <span className="mode-badge agent">Private cloud</span>
+                      <span className="mode-badge agent">{translate("Private cloud")}</span>
                     </div>
-                    <div className="muted small">{skill.description || "Private skill from your account"}</div>
+                    <div className="muted small">{skill.description || translate("Private skill from your account")}</div>
                     <div className="skill-actions">
-                      <button className="btn-bordered-prominent full" disabled={!ready} onClick={() => void s.runScript(skill)}>Run</button>
+                      <button className="btn-bordered-prominent full" disabled={!ready} onClick={() => void s.runScript(skill)}>{translate("Run")}</button>
                     </div>
                   </div>
                 ))}
@@ -347,8 +329,8 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
               <>
                 <div className="row custom-scripts-head">
                   <div>
-                    <h3 className="custom-scripts-title"><Icon name="checkmark.seal.fill" size={18} /> Published scripts</h3>
-                    <p className="muted small">Ready-to-run scripts from your account.</p>
+                    <h3 className="custom-scripts-title"><Icon name="checkmark.seal.fill" size={18} /> {translate("Published scripts")}</h3>
+                    <p className="muted small">{translate("Ready-to-run scripts from your account.")}</p>
                   </div>
                 </div>
                 <div className="skills-grid">
@@ -357,11 +339,11 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
                       <div className="skill-card-head">
                         <Icon name="scroll.fill" size={16} className="accent-icon" />
                         <div className="skill-title">{script.title}</div>
-                        <span className="mode-badge agent">Script</span>
+                        <span className="mode-badge agent">{translate("Script")}</span>
                       </div>
                       <div className="muted small">{script.description || script.subtitle}</div>
                       <div className="skill-actions">
-                        <button className="btn-bordered-prominent full" disabled={!ready} onClick={() => void s.runScript(script)}>Run</button>
+                        <button className="btn-bordered-prominent full" disabled={!ready} onClick={() => void s.runScript(script)}>{translate("Run")}</button>
                       </div>
                     </div>
                   ))}
@@ -372,24 +354,16 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
             <div className="row custom-scripts-head">
               <div>
                 <h3 className="custom-scripts-title">
-                  <Icon name="lock.fill" size={18} />
-                  My scripts
-                </h3>
-                <p className="muted small">
-                  Backed up privately to your account and never shared with other users.
-                </p>
+                  <Icon name="lock.fill" size={18} />{translate("My scripts")}</h3>
+                <p className="muted small">{translate("Backed up privately to your account and never shared with other users.")}</p>
               </div>
-              <button className="btn-bordered-prominent" title="Create a new private custom script" onClick={() => setScriptEditor("new")}>
-                <Icon name="plus" size={14} />
-                New script
-              </button>
+              <Tooltip content={translate("Create a new private custom script")}><button className="btn-bordered-prominent" onClick={() => setScriptEditor("new")}>
+                <Icon name="plus" size={14} />{translate("New script")}</button></Tooltip>
             </div>
             {s.customScripts.length === 0 ? (
               <div className="empty-scripts">
                 <Icon name="scroll" size={18} className="muted" />
-                <span className="muted">
-                  No custom scripts yet. Create one bound to a domain and run it from chat.
-                </span>
+                <span className="muted">{translate("No custom scripts yet. Create one bound to a domain and run it from chat.")}</span>
               </div>
             ) : (
               <div className="skills-grid">
@@ -451,18 +425,18 @@ export function SkillsView({ onOpenAgentSettings }: { onOpenAgentSettings: () =>
       {deleteRequest && (
         <div className="modal-overlay" onMouseDown={() => { if (!deleting) setDeleteRequest(undefined); }}>
           <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-skill-title" onMouseDown={(event) => event.stopPropagation()}>
-            <strong id="delete-skill-title">Delete “{deleteRequest.title}”?</strong>
-            <p>This removes your saved instructions. This action cannot be undone.</p>
+            <strong id="delete-skill-title">{translate("Delete “")}{deleteRequest.title}”?</strong>
+            <p>{translate("This removes your saved instructions. This action cannot be undone.")}</p>
             {deleteError && <div role="alert"><UserFacingError message={deleteError} surface="skill_delete" /></div>}
             <div className="modal-actions">
-              <button className="secondary" disabled={deleting} onClick={() => setDeleteRequest(undefined)}>Cancel</button>
+              <button className="secondary" disabled={deleting} onClick={() => setDeleteRequest(undefined)}>{translate("Cancel")}</button>
               <button className="primary" disabled={deleting} onClick={async () => {
                 if (deleting) return;
                 setDeleting(true); setDeleteError(undefined);
                 try { await deleteRequest.run(); setDeleteRequest(undefined); }
-                catch { setDeleteError("Could not finish deleting these instructions. Try again."); }
+                catch { setDeleteError(translate("Could not finish deleting these instructions. Try again.")); }
                 finally { setDeleting(false); }
-              }}>{deleting ? "Deleting…" : "Delete"}</button>
+              }}>{deleting ? translate("Deleting…") : translate("Delete")}</button>
             </div>
           </section>
         </div>
@@ -490,17 +464,15 @@ function RunLocalSkillSheet({ skill, sessionName, onClose, onRun }: {
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-card skill-run-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <strong>Run {skill.title}</strong>
-        <p className="muted small">
-          The app will verify <strong>{sessionName}</strong>{skill.domain ? ` and open ${skill.domain}` : ""} before the agent starts.
-        </p>
-        <label className="field-label">Task for this run</label>
+        <strong>{translate("Run")} {skill.title}</strong>
+        <p className="muted small">{translate("The app will verify")} <strong>{sessionName}</strong>{skill.domain ? translate(" and open %1", skill.domain) : ""} {translate("before the agent starts.")}</p>
+        <label className="field-label">{translate("Task for this run")}</label>
         <textarea rows={5} autoFocus value={task} onChange={(event) => setTask(event.target.value)} />
-        <p className="muted small">Change the search, filters, content, or other values while keeping the saved workflow.</p>
+        <p className="muted small">{translate("Change the search, filters, content, or other values while keeping the saved workflow.")}</p>
         <div className="row" style={{ gap: 8 }}>
           <span className="spacer" />
-          <button className="secondary" onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={!task.trim()} onClick={() => onRun(task.trim())}>Run skill</button>
+          <button className="secondary" onClick={onClose}>{translate("Cancel")}</button>
+          <button className="primary" disabled={!task.trim()} onClick={() => onRun(task.trim())}>{translate("Run skill")}</button>
         </div>
       </div>
     </div>
@@ -521,19 +493,19 @@ function LocalSkillCard({ skill, ready, sync, onRun, onDetails, onSync, onDelete
       <div className="skill-card-head">
         <Icon name="sparkles" size={16} className="accent-icon" />
         <div className="skill-title">{skill.title}</div>
-        <span className="mode-badge agent">Local</span>
+        <span className="mode-badge agent">{translate("Local")}</span>
       </div>
-      <div className="muted small">{skill.domain || "Any website"}</div>
+      <div className="muted small">{skill.domain || translate("Any website")}</div>
       <p className="small instructions-preview">{skill.instructions.slice(0, 150)}{skill.instructions.length > 150 ? "…" : ""}</p>
-      <div className="small muted">{skill.actions.length} recorded browser action{skill.actions.length === 1 ? "" : "s"}</div>
-      {sync === "idle" && <button className="link small sync-link" onClick={onSync}>Back up to private cloud</button>}
-      {sync === "syncing" && <span className="muted small">Backing up…</span>}
-      {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> Private cloud backup</span>}
-      {sync === "failed" && <button className="link small" onClick={onSync}>Saved locally · Retry backup</button>}
+      <div className="small muted">{translate("Recorded browser actions: %1", skill.actions.length)}</div>
+      {sync === "idle" && <button className="link small sync-link" onClick={onSync}>{translate("Back up to private cloud")}</button>}
+      {sync === "syncing" && <span className="muted small">{translate("Backing up…")}</span>}
+      {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> {translate("Private cloud backup")}</span>}
+      {sync === "failed" && <button className="link small" onClick={onSync}>{translate("Saved locally · Retry backup")}</button>}
       <div className="skill-actions">
-        <button className="btn-bordered-prominent full" disabled={!ready} onClick={onRun}>Run</button>
-        <button className="btn-bordered full" onClick={onDetails}>View details</button>
-        <button className="mini danger-text" onClick={onDelete}>Delete</button>
+        <button className="btn-bordered-prominent full" disabled={!ready} onClick={onRun}>{translate("Run")}</button>
+        <button className="btn-bordered full" onClick={onDetails}>{translate("View details")}</button>
+        <button className="mini danger-text" onClick={onDelete}>{translate("Delete")}</button>
       </div>
     </div>
   );
@@ -547,21 +519,21 @@ function LocalSkillDetails({ skill, onClose }: { skill: BrowserWorkflowSkill; on
           <Icon name="sparkles" size={17} className="accent-icon" />
           <div>
             <strong>{skill.title}</strong>
-            <div className="muted small">{skill.domain || "Any website"}</div>
+            <div className="muted small">{skill.domain || translate("Any website")}</div>
           </div>
           <span className="spacer" />
-          <button className="plain-icon-btn" onClick={onClose} aria-label="Close skill details"><Icon name="xmark" size={15} /></button>
+          <button className="plain-icon-btn" onClick={onClose} aria-label={translate("Close skill details")}><Icon name="xmark" size={15} /></button>
         </div>
         <section>
-          <span className="field-label">Original task</span>
-          <p className="skill-details-copy">{skill.task || "No original task recorded."}</p>
+          <span className="field-label">{translate("Original task")}</span>
+          <p className="skill-details-copy">{skill.task || translate("No original task recorded.")}</p>
         </section>
         <section>
-          <span className="field-label">Reusable instructions</span>
+          <span className="field-label">{translate("Reusable instructions")}</span>
           <pre className="skill-details-instructions">{skill.instructions}</pre>
         </section>
-        <div className="muted small">{skill.actions.length} recorded browser action{skill.actions.length === 1 ? "" : "s"}</div>
-        <div className="modal-actions"><button className="secondary" onClick={onClose}>Close</button></div>
+        <div className="muted small">{translate("Recorded browser actions: %1", skill.actions.length)}</div>
+        <div className="modal-actions"><button className="secondary" onClick={onClose}>{translate("Close")}</button></div>
       </div>
     </div>
   );
@@ -589,23 +561,17 @@ function CustomScriptCard({
   return (
     <div className="skill-card claw-card custom-script-card">
       <div className="skill-title">{script.title}</div>
-      <div className="muted small">{script.domain || "(any domain)"}</div>
-      <div className="muted small">Runs in {sessionName}</div>
+      <div className="muted small">{script.domain || translate("(any domain)")}</div>
+      <div className="muted small">{translate("Runs in")} {sessionName}</div>
       <p className="small instructions-preview">{script.instructions.slice(0, 120)}…</p>
-      {(!sync || sync === "idle") && <button className="link small sync-link" onClick={onSync}>Back up privately</button>}
-      {sync === "syncing" && <span className="muted small">Backing up…</span>}
-      {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> Private cloud backup</span>}
-      {sync === "failed" && <button className="link small" onClick={onSync}>Backup failed · Retry</button>}
+      {(!sync || sync === "idle") && <button className="link small sync-link" onClick={onSync}>{translate("Back up privately")}</button>}
+      {sync === "syncing" && <span className="muted small">{translate("Backing up…")}</span>}
+      {sync === "synced" && <span className="ok small"><Icon name="lock.fill" size={11} /> {translate("Private cloud backup")}</span>}
+      {sync === "failed" && <button className="link small" onClick={onSync}>{translate("Backup failed · Retry")}</button>}
       <div className="skill-actions">
-        <button className="btn-bordered-prominent full" disabled={!ready} title={ready ? `Use ${script.title} in chat` : "Connect an agent to use this script"} onClick={onUse}>
-          Use
-        </button>
-        <button className="btn-bordered full" title={`Edit ${script.title}`} onClick={onEdit}>
-          Edit
-        </button>
-        <button className="mini" title={`Delete ${script.title}`} onClick={onDelete}>
-          Delete
-        </button>
+        <Tooltip content={ready ? translate("Use %1 in chat", script.title) : translate("Connect an agent to use this script")}><button className="btn-bordered-prominent full" disabled={!ready} onClick={onUse}>{translate("Use")}</button></Tooltip>
+        <Tooltip content={translate("Edit %1", script.title)}><button className="btn-bordered full" onClick={onEdit}>{translate("Edit")}</button></Tooltip>
+        <Tooltip content={translate("Delete %1", script.title)}><button className="mini" onClick={onDelete}>{translate("Delete")}</button></Tooltip>
       </div>
     </div>
   );
@@ -627,7 +593,7 @@ function CustomScriptSheet({
 
   const save = () => {
     if (!title.trim() || !instructions.trim()) {
-      setValidationError("Enter a title and instructions before saving the script.");
+      setValidationError(translate("Enter a title and instructions before saving the script."));
       return;
     }
     setValidationError("");
@@ -646,32 +612,28 @@ function CustomScriptSheet({
   return (
     <div className="modal-overlay">
       <div className="modal-card script-editor">
-        <h3>{script ? "Edit script" : "New script"}</h3>
-        <input value={title} onChange={(e) => { setTitle(e.target.value); setValidationError(""); }} placeholder="Title" aria-label="Script title" aria-invalid={!!validationError && !title.trim()} />
+        <h3>{script ? translate("Edit script") : translate("New script")}</h3>
+        <input value={title} onChange={(e) => { setTitle(e.target.value); setValidationError(""); }} placeholder={translate("Title")} aria-label={translate("Script title")} aria-invalid={!!validationError && !title.trim()} />
         <input
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
-          placeholder="Domain (optional)"
+          placeholder={translate("Domain (optional)")}
         />
         <textarea
           value={instructions}
           onChange={(e) => { setInstructions(e.target.value); setValidationError(""); }}
-          placeholder="Instructions for the agent…"
+          placeholder={translate("Instructions for the agent…")}
           rows={8}
-          aria-label="Script instructions"
+          aria-label={translate("Script instructions")}
           aria-invalid={!!validationError && !instructions.trim()}
         />
         {validationError && <p className="error-text" role="alert">{validationError}</p>}
         <div className="row" style={{ gap: 8, marginTop: 8 }}>
-          <button className="secondary" onClick={onClose}>
-            Cancel
-          </button>
+          <button className="secondary" onClick={onClose}>{translate("Cancel")}</button>
           <button
             className="primary"
             onClick={save}
-          >
-            Save
-          </button>
+          >{translate("Save")}</button>
         </div>
       </div>
     </div>

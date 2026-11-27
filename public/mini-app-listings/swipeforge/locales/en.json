@@ -1,0 +1,13 @@
+{
+  "description": "AI videos, images and posts from SwipeForge, published to your social accounts.",
+  "useCases": [
+    "Generate a video, image, post or voice-over from a text prompt.",
+    "Track renders and publish to TikTok, Instagram, YouTube or X."
+  ],
+  "requirements": "Sign in with your Nextbrowser account. Generation limits follow your SwipeForge level. Posts go out only after you approve them.",
+  "example": "Make a 5-second vertical video: a paper boat on a rainy neon street.",
+  "screenshots": {
+    "workspace.png": "Creating a video",
+    "connect.png": "Connecting SwipeForge"
+  }
+}

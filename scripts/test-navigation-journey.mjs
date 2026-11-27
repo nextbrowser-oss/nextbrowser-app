@@ -25,12 +25,27 @@ try {
     localStorage.setItem("nextbrowser.theme", "light");
     window.__navigationQA = { calls: [] };
     window.nextbrowser = {
+      customWindowControls: true,
       on() { return () => {}; },
       async invoke(command, args = {}) {
         window.__navigationQA.calls.push({ command, args });
         if (command === "nextctl_version") return "1.2.39";
         if (command === "nextctl_supports_skill") return true;
+        if (command === "nextctl_run" && args.args?.[0] === "proxy-traffic" && args.args.includes("--from")) {
+          const from = args.args[args.args.indexOf("--from") + 1];
+          const to = args.args[args.args.indexOf("--to") + 1];
+          const history = { from, to, timezone: "UTC", total_bytes: 4096, total_requests: 17,
+            data_points: [{ label: from, used_bytes: 4096, requests: 17 }], sources: [],
+            top_domains: [{ domain: "private-site.example", used_bytes: 4096, requests: 17 }] };
+          return { code: 0, stdout: JSON.stringify({ ok: true, data: { proxy_traffic_history: history } }), stderr: "" };
+        }
+        if (command === "nextctl_run" && args.args?.slice(0, 2).join(" ") === "remote close") return { code: 0 };
+        if (command === "nextctl_run" && args.args?.includes("screenshot")) {
+          const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l2UAAAAASUVORK5CYII=";
+          return { code: 0, stdout: JSON.stringify({ ok: true, data: { data: png } }), stderr: "" };
+        }
         if (command === "browser_runtime_update_status") return { status: "ready", checkedAt: Date.now(), runtimes: [] };
+        if (command === "browser_runtime_available") return window.__liveRuntimeAvailable !== false;
         if (command === "browser_runtime_install_status" || command === "browser_runtime_update_install_status") return { status: "idle" };
         if (command === "app_update_status") return { status: "not-available" };
         if (command === "app_platform") return { platform: "win32", arch: "x64" };
@@ -38,6 +53,9 @@ try {
         if (command === "github_stars") return 64;
         if (command === "github_star_status") return { eligible: false };
         if (command === "dashboard_auth_status") return { authed: true };
+        if (command === "user_mcp_list") return [];
+        if (["automation_workflows_list", "automation_recordings_list", "automation_runs_list", "automation_shares_list", "artifact_list"].includes(command)) return [];
+        if (command === "user_mcp_catalog") return { items: [], cursor: "" };
         if (command === "manual_proxies_list" || command === "browser_runtime_clawbrowser_active_sessions") return [];
         if (command === "multilogin_login_complete") return { connected: true, valid: true, secureStorageAvailable: true, account: { email: "qa@example.com", workspaceName: "QA workspace" }, browserProfiles: [], mobileProfiles: [] };
         return {};
@@ -45,17 +63,591 @@ try {
     };
   });
   await page.goto(`${url}/?preview=main`);
+  const chrome = page.getByRole("banner", { name: "Application toolbar" });
+  const community = chrome.getByRole("button", { name: "Join Nextbrowser on Discord" });
+  await community.waitFor();
+  assert.equal(await page.getByRole("button", { name: "Join Nextbrowser on Discord" }).count(), 1);
+  assert.equal(await chrome.getByRole("button", { name: "Star Nextbrowser on GitHub" }).count(), 1);
+  await mkdir("e2e-out", { recursive: true });
+  for (const theme of ["light", "dark"]) {
+    if (await page.locator("html").getAttribute("data-theme") !== theme) {
+      await chrome.getByRole("button", { name: /Switch to .* theme/ }).click();
+    }
+    for (const [tone, claimed, revoked] of [["missing", false, false], ["verified", true, false], ["missing", false, true], ["unknown", null, false]]) {
+      await page.evaluate(async ({ claimed, revoked }) => {
+        const { useStore } = await import("/src/store.ts");
+        useStore.setState({ githubStar: claimed === null ? null : { required: !claimed, claimed, revoked, repoUrl: "https://github.com/nextbrowser-oss/nextbrowser-app", rewardBytes: 1e9 }, githubStarPromptOpen: false });
+        // Let the existing once-per-launch reward prompt run, then dismiss it
+        // in this isolated fixture so it does not cover the header under test.
+        await new Promise(requestAnimationFrame);
+        useStore.setState({ githubStarPromptOpen: false });
+      }, { claimed, revoked });
+      await page.waitForFunction(tone => document.querySelector(`.community-discord--${tone}`), tone);
+      const style = await community.evaluate((node, tone) => {
+        const s = getComputedStyle(node);
+        const probe = document.createElement("span");
+        probe.style.color = `var(${tone === "verified" ? "--green" : tone === "missing" ? "--red" : "--muted"})`;
+        document.body.append(probe);
+        const expected = getComputedStyle(probe).color; probe.remove();
+        return { color: s.color, expected, border: s.borderTopWidth, shadow: s.boxShadow, background: s.backgroundColor };
+      }, tone);
+      assert.equal(style.color, style.expected);
+      assert.equal(style.border, "0px");
+      assert.equal(style.shadow, "none");
+      if (tone !== "unknown") assert.notEqual(style.background, "rgba(0, 0, 0, 0)");
+      await community.hover();
+      const hint = page.getByRole("tooltip");
+      await hint.waitFor();
+      assert.match(await hint.innerText(), tone === "verified" ? /star verified/ : tone === "missing" ? /star is not verified/ : /verify your star/);
+      const hintBox = await hint.boundingBox();
+      assert.ok(hintBox.y >= 0 && hintBox.x >= 0 && hintBox.x + hintBox.width <= 1280);
+      if (!revoked && tone !== "unknown") await page.screenshot({ path: `e2e-out/community-${theme}-${tone}.png` });
+      await page.mouse.move(20, 100);
+      await hint.waitFor({ state: "hidden" });
+    }
+  }
+  for (const width of [1280, 540, 420, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const boxes = await chrome.getByRole("button").evaluateAll(nodes => nodes.map(node => {
+      const b = node.getBoundingClientRect(), s = getComputedStyle(node);
+      return { left: b.left, right: b.right, bottom: b.bottom, border: s.borderTopWidth, drag: s.getPropertyValue("app-region") };
+    }));
+    for (const b of boxes) {
+      assert.ok(b.left >= 0 && b.right <= width - 8 && b.bottom <= 40, JSON.stringify({ width, b }));
+      assert.equal(b.border, "0px");
+      assert.equal(b.drag, "no-drag");
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await chrome.getByRole("button", { name: "Switch to light theme" }).click();
+  const mainViews = page.getByRole('tablist', { name: 'Main views' });
+  const automationTab = page.getByRole('tab', { name: 'Open Automation', exact: true });
+  async function dragMainViewTo(destination) {
+    const tabBox = await automationTab.boundingBox();
+    assert.ok(tabBox && destination);
+    await page.mouse.move(tabBox.x + tabBox.width / 2, tabBox.y + tabBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(destination.x, destination.y, { steps: 12 });
+    await page.mouse.up();
+  }
+  const chatSurface = await page.locator('.chat:visible').boundingBox();
+  await dragMainViewTo({ x: chatSurface.x + chatSurface.width * .65, y: chatSurface.y + chatSurface.height * .35 });
+  const floating = page.getByRole('tablist', { name: 'Detached views' });
+  await floating.getByRole('tab', { name: 'Open Automation' }).waitFor();
+  const detachedBox = await floating.boundingBox();
+  await page.reload();
+  await floating.getByRole('tab', { name: 'Open Automation' }).waitFor();
+  const restoredBox = await floating.boundingBox();
+  assert.ok(Math.abs(restoredBox.x - detachedBox.x) < 3 && Math.abs(restoredBox.y - detachedBox.y) < 3);
+  await floating.getByRole('tab', { name: 'Open Automation' }).click();
+  await page.locator('.automation-studio').waitFor();
+  assert.equal(await floating.getByRole('tab', { name: 'Open Automation' }).getAttribute('aria-selected'), 'true');
+  const dock = await mainViews.boundingBox();
+  await dragMainViewTo({ x: dock.x + dock.width / 2, y: dock.y + dock.height / 2 });
+  await mainViews.getByRole('tab', { name: 'Open Automation' }).waitFor();
+  assert.equal(await floating.count(), 0);
+  await mainViews.getByRole('tab', { name: 'Open Project', exact: true }).click();
+  await page.locator('.chat:visible').waitFor();
+  const projectName = page.locator('.chat-project-title');
+  const titleBounds = await projectName.boundingBox();
+  const viewBounds = await mainViews.boundingBox();
+  assert.ok(viewBounds.x >= titleBounds.x + titleBounds.width, 'minimal main navigation sits after the project name');
+  assert.ok(Math.abs(viewBounds.y - titleBounds.y) <= 2);
+  assert.equal(await page.locator('.content-chat > .tabbar').count(), 0, 'no separate navigation row above the chat');
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    const s = useStore.getState();
+    window.__liveFixture = {
+      launched: [], streamed: [], startProfile: s.startProfile, startRemoteStream: s.startRemoteStream,
+      defaultSession: s.defaultSession, startDefaultSession: s.startDefaultSession,
+    };
+    useStore.setState({
+      profiles: [{ name: 'live-preview' }],
+      statuses: { 'live-preview': 'stopped' },
+      selectedProfile: 'live-preview',
+      workspaces: s.workspaces.map(workspace => ({ ...workspace, profileNames: ['live-preview'], profileToolsets: { 'live-preview': 'clawbrowser' } })),
+      startProfile: async (name, options) => {
+        assertLiveStart(options);
+        window.__liveFixture.launched.push(name);
+        useStore.setState({ statuses: { [name]: 'running' } });
+      },
+      startRemoteStream: async target => {
+        window.__liveFixture.streamed.push(target.profile || '__default');
+        return { id: 'live-preview', viewer_url: 'about:blank' };
+      },
+    });
+    function assertLiveStart(options) {
+      if (!options?.forLive) throw new Error('Live must request a background browser start');
+    }
+  });
+  const railLive = page.getByRole('button', { name: 'Open Processes', exact: true });
+  const liveMenu = page.getByRole('dialog', { name: 'Processes', exact: true });
+  const liveGrid = page.getByRole('region', { name: 'Processes', exact: true });
+  await railLive.hover();
+  await liveMenu.getByRole('button', { name: /live-preview/ }).waitFor();
+  assert.ok((await liveMenu.boundingBox()).x > (await railLive.boundingBox()).x + (await railLive.boundingBox()).width);
+  await railLive.click();
+  await liveGrid.getByRole('button', { name: 'Open live-preview' }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__liveFixture.launched), [], 'opening Live does not start a profile');
+  const profileCard = liveGrid.getByRole('button', { name: 'Open live-preview', exact: true });
+  await profileCard.click({ button: 'right' });
+  const profileActions = page.getByRole('dialog', { name: 'Profile actions for live-preview', exact: true });
+  await profileActions.getByRole('button', { name: /Use in chat/ }).waitFor();
+  await profileActions.getByRole('combobox', { name: 'Rotate country' }).click();
+  await profileActions.getByPlaceholder('Search countries').fill('United');
+  await profileActions.getByRole('option', { name: /United States/ }).waitFor();
+  await profileActions.getByPlaceholder('Search countries').press('Escape');
+  await profileActions.waitFor();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    const labels = await profileActions.locator('.profile-menu-label').evaluateAll(nodes => nodes.map(node => {
+      const s = getComputedStyle(node); const probe = document.createElement('span');
+      probe.style.color = 'var(--glass-inverse-muted)'; node.append(probe);
+      const expected = getComputedStyle(probe).color; probe.remove();
+      return { actual: s.color, expected };
+    }));
+    for (const label of labels) assert.equal(label.actual, label.expected, 'profile labels use glass contrast tokens');
+    await page.screenshot({ path: `e2e-out/profiles-context-${theme}.png`, animations: 'disabled' });
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await profileActions.press('Escape');
+  await liveGrid.getByRole('button', { name: 'Settings for live-preview' }).click();
+  await profileActions.waitFor();
+  await profileActions.getByRole('button', { name: /Managed proxy.*Change connection/ }).click();
+  const connectionEditor = page.getByRole('dialog', { name: 'Change connection', exact: true });
+  await connectionEditor.waitFor();
+  await connectionEditor.press('Escape');
+  await profileCard.click({ button: 'right' });
+  await profileActions.getByRole('button', { name: 'Delete profile', exact: true }).click();
+  const deleteProfile = page.getByRole('dialog', { name: 'Delete profile "live-preview"?', exact: true });
+  await deleteProfile.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await profileCard.waitFor();
+  await liveGrid.getByRole('button', { name: 'Create browser profile', exact: true }).click();
+  const createBrowser = page.getByRole('dialog', { name: 'Create profile', exact: true });
+  await createBrowser.waitFor();
+  await createBrowser.press('Escape');
+  // The session's Live tab must open its browser directly, without passing through the grid.
+  await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().setTab('chat'));
+  await mainViews.getByRole('tab', { name: 'Open Processes', exact: true }).click();
+  const liveViewer = page.locator('.remote-live-webview');
+  await liveViewer.waitFor();
+  assert.deepEqual(await page.evaluate(() => [window.__liveFixture.launched, window.__liveFixture.streamed]), [['live-preview'], ['live-preview']]);
+  const liveButton = page.getByRole('button', { name: 'Show process controls', exact: true });
+  const sideTabs = page.locator('.live-workspace-tabs');
+  const livePill = page.locator('.live-workspace-pill');
+  const rename = livePill.getByRole('button', { name: /^Rename session:/ });
+  const initialName = await rename.innerText();
+  assert.equal(await livePill.count(), 2);
+  const items = [sideTabs.getByRole('tab', { name: 'Chat' }), sideTabs.getByRole('tab', { name: 'Projects' }), rename];
+  const boxes = await Promise.all(items.map(item => item.boundingBox()));
+  for (let i = 1; i < boxes.length; i++) {
+    assert.ok(Math.abs(boxes[i].x - boxes[i - 1].x - boxes[i - 1].width - 4) < 1, 'all four items have the same gap');
+  }
+  await rename.click();
+  await livePill.getByRole('textbox', { name: 'Session name' }).fill('Discard this edit');
+  await livePill.getByRole('textbox').press('Escape');
+  assert.equal(await rename.innerText(), initialName);
+  await rename.click();
+  await livePill.getByRole('textbox').fill('Live session title');
+  await livePill.getByRole('button', { name: 'Save session name' }).click();
+  await sideTabs.getByRole('tab', { name: 'Projects' }).click();
+  await page.locator('#live-side-projects').getByRole('treeitem', { name: /^Open Live session title in / }).waitFor();
+  const liveProjects = page.locator('#live-side-projects');
+  const pinnedProjects = page.getByRole('complementary', { name: 'Projects' });
+  const viewerBeforePin = await liveViewer.elementHandle();
+  await liveProjects.getByRole('searchbox').fill('Live session title');
+  const pinProjects = liveProjects.getByRole('button', { name: 'Pin Projects' });
+  assert.equal(await pinProjects.innerText(), 'Pin');
+  await pinProjects.click();
+  await pinnedProjects.waitFor();
+  assert.equal(await pinnedProjects.getByRole('searchbox').inputValue(), 'Live session title');
+  assert.equal(await sideTabs.getByRole('tab', { name: 'Projects' }).count(), 0);
+  assert.ok(await page.locator('#live-side-chat').isVisible());
+  await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
+  assert.ok(await pinnedProjects.getByRole('searchbox').evaluate(input => input === document.activeElement));
+  const unpinProjects = pinnedProjects.getByRole('button', { name: 'Unpin Projects' });
+  assert.equal(await unpinProjects.innerText(), 'Unpin');
+  await unpinProjects.click();
+  const projectsPopup = page.getByRole('dialog', { name: 'Projects', exact: true });
+  await projectsPopup.waitFor();
+  assert.equal(await pinnedProjects.count(), 0);
+  assert.equal(await projectsPopup.getByRole('searchbox').inputValue(), 'Live session title');
+  assert.ok(await liveViewer.evaluate((node, original) => node === original, viewerBeforePin));
+  await projectsPopup.getByRole('searchbox').fill('');
+  await page.keyboard.press('Escape');
+  await projectsPopup.waitFor({state:'hidden'});
+  await rename.click();
+  await livePill.getByRole('textbox').fill(initialName);
+  await livePill.getByRole('textbox').press('Enter');
+  await sideTabs.getByRole('tab', { name: 'Chat' }).click();
+  const browserPane = page.getByRole('region', { name: 'Live browser' });
+  const splitter = page.getByRole('separator', { name: 'Resize Live browser' });
+  const chatBounds = await page.locator('#live-side-chat').boundingBox();
+  const viewportBefore = await liveViewer.boundingBox();
+  const railBounds = await page.locator('#app-sidebar').boundingBox();
+  assert.ok(railBounds.x + railBounds.width <= viewportBefore.x && viewportBefore.x + viewportBefore.width <= chatBounds.x);
+  await sideTabs.getByRole('tab', {name:'Projects'}).click();
+  assert.deepEqual(await page.locator('#live-side-projects').boundingBox(), chatBounds);
+  await page.locator('#live-side-projects').getByRole('searchbox',{name:'Search projects'}).fill('draft');
+  await page.getByRole('button',{name:'Hide browser',exact:true}).click();
+  assert.equal(await browserPane.count(),0);
+  assert.ok((await page.locator('#live-side-projects').boundingBox()).width > chatBounds.width);
+  await page.getByRole('button',{name:'Show browser',exact:true}).click();
+  assert.equal(await page.locator('#live-side-projects input[type=search]').inputValue(),'draft');
+  await sideTabs.getByRole('tab', {name:'Chat'}).click();
+  const grip = await splitter.boundingBox();
+  await page.mouse.move(grip.x+grip.width/2, grip.y+60);
+  await page.mouse.down();
+  await page.mouse.move(grip.x+grip.width/2+80, grip.y+60, {steps:8});
+  await page.mouse.up();
+  assert.ok((await liveViewer.boundingBox()).width > viewportBefore.width+60);
+  // Dock the projects below the chat, regroup both tabs, then move Live to the right.
+  const chatPane = page.locator('#live-side-chat');
+  const projectsPane = page.locator('#live-side-projects');
+  const liveFrame = await liveViewer.elementHandle();
+  const initialLayout = await page.evaluate(() => localStorage.getItem('nextbrowser.appearance.liveDock.v1'));
+  const dragPanel = async (source, onto, dx, dy, cancel = false) => {
+    const from = await source.boundingBox(), dest = await onto.boundingBox();
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dest.x + dest.width * dx, dest.y + dest.height * dy, { steps: 12 });
+    await page.locator('.live-dock-preview').waitFor();
+    if (cancel) await page.keyboard.press('Escape');
+    await page.mouse.up();
+  };
+  const projectsTab = sideTabs.getByRole('tab', {name:'Projects'});
+  const liveTab = sideTabs.getByRole('tab', {name:'Processes',exact:true});
+  await dragPanel(projectsTab, chatPane, .5, .95);
+  assert.ok((await projectsPane.boundingBox()).y >= (await chatPane.boundingBox()).y + (await chatPane.boundingBox()).height);
+  assert.equal(await livePill.count(), 3);
+  await dragPanel(projectsTab, sideTabs.getByRole('tab', {name:'Chat',exact:true}), .5, .5);
+  assert.equal(await livePill.count(), 2);
+  assert.ok(await projectsPane.isVisible() && !await chatPane.isVisible());
+  await sideTabs.getByRole('tab', {name:'Chat'}).click();
+  await dragPanel(liveTab, chatPane, .95, .5);
+  assert.ok((await browserPane.boundingBox()).x > (await chatPane.boundingBox()).x);
+  const rightLayout = await page.evaluate(() => localStorage.getItem('nextbrowser.appearance.liveDock.v1'));
+  await dragPanel(liveTab, chatPane, .05, .5, true);
+  assert.equal(await page.evaluate(() => localStorage.getItem('nextbrowser.appearance.liveDock.v1')), rightLayout);
+  await dragPanel(liveTab, chatPane, .5, .5);
+  assert.ok(await liveViewer.isVisible() && !await chatPane.isVisible());
+  await sideTabs.getByRole('tab', {name:'Chat'}).click();
+  assert.ok(await chatPane.isVisible() && !await liveViewer.isVisible());
+  await dragPanel(liveTab, chatPane, .05, .5);
+  assert.ok((await browserPane.boundingBox()).x < (await chatPane.boundingBox()).x);
+  assert.equal(await liveFrame.evaluate(node => node === document.querySelector('.remote-live-webview')), true);
+  assert.notEqual(await page.evaluate(() => localStorage.getItem('nextbrowser.appearance.liveDock.v1')), initialLayout);
+  const initial = await liveButton.boundingBox();
+  const fullWindow = await liveViewer.boundingBox();
+  assert.ok(initial.x >= fullWindow.x && initial.x <= fullWindow.x+20, 'controls stay inside the browser');
+  assert.equal(await chrome.isVisible(), true);
+  assert.equal(await page.locator('#app-sidebar').isVisible(), true);
+  await page.mouse.move(initial.x + initial.width / 2, initial.y + initial.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(340, 630, { steps: 8 });
+  await page.mouse.up();
+  assert.equal(await page.getByRole('dialog', { name: 'Process controls', exact: true }).count(), 0);
+  const moved = await liveButton.boundingBox();
+  assert.ok(moved.x > 200 && moved.y < initial.y - 100, 'dragging moves the controls button');
+  await liveButton.click();
+  const liveControls = page.getByRole('dialog', { name: 'Process controls', exact: true });
+  await liveControls.waitFor();
+  assert.equal(await sideTabs.first().isVisible(), true, 'the thread switcher remains available with process controls open');
+  assert.equal(await chrome.isVisible(), true);
+  assert.equal(await page.locator('#app-sidebar').isVisible(), true);
+  assert.deepEqual(await liveViewer.boundingBox(), fullWindow, 'controls overlay leaves the viewer size unchanged');
+  const [detached] = await Promise.all([
+    page.waitForEvent('popup'),
+    liveControls.getByRole('button', { name: 'Open in separate window', exact: true }).click(),
+  ]);
+  await detached.locator('.remote-live-webview').waitFor();
+  assert.equal(await liveViewer.count(), 0, 'only one viewer is mounted');
+  await detached.close();
+  await liveViewer.waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__liveFixture.streamed), ['live-preview'],
+    'returning the viewer does not start another remote session');
+  await liveControls.getByRole('button', { name: 'Stop', exact: true }).click();
+  await liveViewer.waitFor({ state: 'detached' });
+  assert.equal(await page.getByRole('button', { name: 'Resume browser', exact: true }).isVisible(), true);
+  await liveControls.getByRole('button', { name: 'All Processes' }).click();
+  const card = liveGrid.getByRole('button', { name: 'Open live-preview' });
+  await card.locator('img').waitFor();
+  await railLive.hover();
+  await liveMenu.getByRole('searchbox').fill('missing');
+  await liveMenu.getByText('No matching profiles').waitFor();
+  await liveMenu.getByRole('searchbox').fill('live-preview');
+  await liveMenu.getByRole('button', { name: /live-preview/ }).waitFor();
+  await railLive.click();
+  await card.click();
+  await liveViewer.waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__liveFixture.launched), ['live-preview'], 'opening the preview reuses the running profile');
+  await liveButton.click();
+  await liveControls.getByRole('button', { name: 'Stop', exact: true }).click();
+  await chrome.getByRole('button', { name: 'Back to main view' }).click();
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    const s = useStore.getState();
+    window.__liveRuntimeAvailable = false;
+    useStore.setState({
+      profiles: [], statuses: {}, selectedProfile: undefined, defaultSession: { status: 'stopped' },
+      workspaces: s.workspaces.map(workspace => ({ ...workspace, profileNames: ['__default'], profileToolsets: {} })),
+      startDefaultSession: async () => {
+        window.__liveFixture.launched.push('__default');
+        if (window.__liveRuntimeAvailable === false) {
+          throw new Error('[nbc-install] Requesting Windows administrator approval for silent Clawbrowser setup...\ninstall failed: administrator approval was canceled');
+        }
+        useStore.setState({ defaultSession: { status: 'running' } });
+      },
+    });
+  });
+  await mainViews.getByRole('tab', { name: 'Open Processes', exact: true }).click();
+  const downloadLive = page.getByRole('button', { name: 'Download & start', exact: true });
+  await downloadLive.waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__liveFixture.launched), ['live-preview'],
+    'entering Live with a missing runtime does not launch its installer');
+  await downloadLive.click();
+  await page.getByText(/Windows administrator approval was cancelled/).waitFor();
+  assert.equal(await page.getByText(/\[nbc-install\]/).count(), 0);
+  assert.deepEqual(await page.evaluate(() => window.__liveFixture.streamed), ['live-preview', 'live-preview'],
+    'cancelling the installer does not attempt to stream');
+  await page.evaluate(() => { window.__liveRuntimeAvailable = true; });
+  await page.getByRole('button', { name: 'Retry connection', exact: true }).click();
+  await liveViewer.waitFor();
+  const restored = await liveButton.boundingBox();
+  assert.ok(Math.abs(restored.x + restored.width / 2 - 340) <= 1 &&
+    Math.abs(restored.y + restored.height / 2 - 630) <= 1, 'button position survives leaving and reopening Live');
+  assert.deepEqual(await page.evaluate(() => [window.__liveFixture.launched, window.__liveFixture.streamed]),
+    [['live-preview', '__default', '__default'], ['live-preview', 'live-preview', '__default']]);
+  await liveButton.click();
+  await liveControls.getByRole('button', { name: 'Stop', exact: true }).click();
+  await chrome.getByRole('button', { name: 'Back to main view' }).click();
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    const s = useStore.getState();
+    useStore.setState({
+      profiles: [], statuses: {}, selectedProfile: undefined,
+      workspaces: s.workspaces.map(workspace => ({ ...workspace, profileNames: [], profileToolsets: {} })),
+      startProfile: window.__liveFixture.startProfile, startRemoteStream: window.__liveFixture.startRemoteStream,
+      defaultSession: window.__liveFixture.defaultSession, startDefaultSession: window.__liveFixture.startDefaultSession,
+    });
+  });
+  const focusBeforeProjectHover = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+  await page.getByRole("button", { name: "Open Projects", exact: true }).hover();
+  await page.getByRole('dialog', { name: 'Projects', exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), focusBeforeProjectHover, 'hover does not steal input focus');
+  await page.getByRole("button", { name: "Open Projects", exact: true }).click();
+  const projectPopover = page.getByRole('dialog', { name: 'Projects' });
+  await projectPopover.waitFor();
+  const side = await page.locator('#app-sidebar').boundingBox();
+  assert.ok((await projectPopover.boundingBox()).x >= side.x + side.width, 'project popup stays beyond the left navigation');
+  assert.ok((await projectPopover.boundingBox()).width <= 280);
+  const original = await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    const state = useStore.getState(), project = state.activeConversation();
+    return { id: project.id, title: project.title, messages: project.messages, workspaceId: state.activeWorkspaceId };
+  });
+  await projectPopover.getByRole('button', { name: `New session in ${original.title}`, exact: true }).click();
+  await projectPopover.waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(async ({ id, messages }) => {
+    const { useStore } = await import('/src/store.ts'); const state = useStore.getState();
+    return state.activeConversation().projectId === id && state.activeConversation().messages.length === 0 && JSON.stringify(state.conversations.find(item => item.id === id).messages) === JSON.stringify(messages);
+  }, original), true, 'new sessions preserve the original project history');
+  await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
+  await projectPopover.getByRole('button', { name: `Collapse project ${original.title}`, exact: true }).click();
+  assert.equal(await projectPopover.getByRole('treeitem', { name: `Open Main session in ${original.title}`, exact: true }).count(), 0);
+  await projectPopover.getByRole('button', { name: `Expand project ${original.title}`, exact: true }).click();
+  const dragFixture = await page.evaluate(async originalId => {
+    const { useStore } = await import('/src/store.ts'); const state = useStore.getState();
+    return { session: state.activeConversation(), other: state.conversations.find(item => !item.projectId && item.id !== originalId && item.workspaceId === state.activeWorkspaceId) };
+  }, original.id);
+  const sessionRow = () => projectPopover.locator(`[data-node-id=${JSON.stringify(`session:${dragFixture.session.id}`)}]`);
+  const folderRow = id => projectPopover.locator(`[data-node-id=${JSON.stringify(`folder:${id}`)}]`);
+  assert.equal(await projectPopover.locator(`[data-node-id=${JSON.stringify(`session:${original.id}`)}]`).getAttribute('draggable'), 'false');
+  await sessionRow().dragTo(folderRow(dragFixture.other.id));
+  assert.equal(await page.evaluate(async id => {
+    const { useStore } = await import('/src/store.ts'); return useStore.getState().conversations.find(item => item.id === id).projectId;
+  }, dragFixture.session.id), dragFixture.other.id, 'real FractalUI DnD moves the saved session to the target folder');
+  await folderRow(dragFixture.other.id).dragTo(folderRow(original.id), { targetPosition: { x: 40, y: 2 } });
+  assert.equal(await projectPopover.getByRole('treeitem').first().getAttribute('data-node-id'), `folder:${dragFixture.other.id}`, 'folder order follows the drop');
+  await sessionRow().dragTo(folderRow(original.id));
+  await projectPopover.getByRole('searchbox', { name: 'Search projects' }).fill('Session');
+  assert.equal(await sessionRow().getAttribute('draggable'), 'false', 'search disables ambiguous reordering');
+  await projectPopover.getByRole('searchbox', { name: 'Search projects' }).fill('');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; }, theme);
+    await page.waitForTimeout(250);
+    assert.equal(await projectPopover.locator('.shared-tree-list').evaluate(node => getComputedStyle(node).scrollbarWidth), 'none');
+    await page.screenshot({ path: `e2e-out/project-folders-${theme}.png` });
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; document.documentElement.style.colorScheme = 'light'; });
+  await projectPopover.getByRole('treeitem', { name: `Open Main session in ${original.title}`, exact: true }).click();
+  await page.getByRole('button', { name: /^Switch workspace,/ }).click();
+  const workspacePopover = page.getByRole('dialog', { name: 'Workspaces', exact: true });
+  await workspacePopover.waitFor();
+  assert.ok((await workspacePopover.boundingBox()).y >= 30);
+  assert.equal(await workspacePopover.getByRole('button', { name: 'Profiles and proxies', exact: true }).count(), 0);
+  await workspacePopover.getByRole('button', { name: 'Create workspace', exact: true }).click();
+  const workspaceCreate = page.getByRole('dialog', { name: 'Create workspace', exact: true });
+  await workspaceCreate.waitFor();
+  await workspaceCreate.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const workspaceBefore = await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts'); const state = useStore.getState(), current = state.workspaces.find(item => item.id === state.activeWorkspaceId);
+    const project = state.conversations.find(item => item.id === state.activeConvId[state.agentId]);
+    useStore.setState({ workspaces: [...state.workspaces, { ...current, id: 'qa-second-workspace', name: 'Other QA workspace' }],
+      conversations: [...state.conversations, { ...project, id: 'qa-second-project', title: 'Other workspace project', workspaceId: 'qa-second-workspace', projectId: undefined, messages: [] }] });
+    return { id: current.id, name: current.name };
+  });
+  await page.getByRole('button', { name: /^Switch workspace,/ }).hover();
+  const workspaceSearch = workspacePopover.getByRole('textbox', { name: 'Search workspaces' });
+  await workspaceSearch.fill('other qa');
+  assert.equal(await workspacePopover.getByRole('button', { name: workspaceBefore.name, exact: true }).count(), 0);
+  await workspacePopover.getByRole('button', { name: 'Other QA workspace', exact: true }).hover();
+  await workspacePopover.getByRole('button', { name: 'Delete workspace Other QA workspace', exact: true }).click();
+  const deleteWorkspace = page.getByRole('alertdialog', { name: 'Delete “Other QA workspace”?' });
+  await deleteWorkspace.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: /^Switch workspace,/ }).click();
+  await workspacePopover.getByRole('button', { name: 'Emergency data reset', exact: true }).click();
+  const resetWorkspace = page.getByRole('dialog', { name: 'Emergency data reset', exact: true });
+  const confirmation = resetWorkspace.getByRole('textbox');
+  const resetAction = resetWorkspace.getByRole('button', { name: 'Delete all data', exact: true });
+  await confirmation.fill('drop');
+  assert.equal(await resetAction.isDisabled(), true);
+  await confirmation.fill('DROP');
+  assert.equal(await resetAction.isEnabled(), true);
+  await resetWorkspace.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__navigationQA.calls.some(call => call.command === 'workspace_emergency_reset')), false);
+  await page.getByRole('button', { name: /^Switch workspace,/ }).click();
+  await workspacePopover.getByRole('button', { name: 'Other QA workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Switch workspace, Other QA workspace', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
+  await projectPopover.getByRole('button', { name: 'Expand project Other workspace project', exact: true }).count().then(async count => {
+    if (count) await projectPopover.getByRole('button', { name: 'Expand project Other workspace project', exact: true }).click();
+  });
+  assert.equal(await projectPopover.getByRole('treeitem', { name: `Open Main session in ${original.title}`, exact: true }).count(), 0, 'project listings stay scoped to the selected workspace');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^Switch workspace,/ }).click();
+  await workspacePopover.getByRole('button', { name: workspaceBefore.name, exact: true }).click();
+  await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
+  await page.keyboard.press('Escape');
   const nav = page.getByRole("navigation", { name: "Sidebar pages" });
-  const skillsButton = () => nav.getByRole("button", { name: /^Open Skills/ });
-  await skillsButton().click();
-  const expandedY = (await skillsButton().boundingBox()).y;
-  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
-  const collapsedY = (await skillsButton().boundingBox()).y;
-  assert.ok(Math.abs(expandedY - collapsedY) < 1, `Navigation moved: ${expandedY} → ${collapsedY}`);
-  assert.equal(await skillsButton().innerText().then((text) => text.includes("Skills")), true);
+  const extensionsButton = () => nav.getByRole('button', { name: 'Open Extensions', exact: true });
+  const openExtension = async name => {
+    await extensionsButton().click();
+    await page.getByRole('dialog', { name: 'Extensions', exact: true }).getByRole('button', { name: new RegExp(`^Open ${name}`) }).click();
+  };
+  const checkSidebarSurface = async () => {
+    const surface = await page.locator('#app-sidebar').evaluate(node => {
+      const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+      const container = node.closest('.desktop-shell-body').getBoundingClientRect();
+      const icon = node.querySelector('.sidebar-destination svg');
+      return { left: rect.left, top: rect.top - container.top, bottom: container.bottom - rect.bottom,
+        radius: style.borderTopLeftRadius, blur: style.backdropFilter, bg: style.backgroundColor,
+        text: style.color, icon: getComputedStyle(icon).color, overflow: node.scrollWidth > node.clientWidth };
+    });
+    assert.ok(surface.left === 6 && surface.top >= 8 && surface.bottom >= 8, JSON.stringify(surface));
+    assert.equal(surface.radius, '18px');
+    assert.ok(surface.blur.includes('blur(18px)'));
+    assert.match(surface.bg, /^rgba\(/);
+    assert.equal(surface.icon, surface.text, 'navigation icons use the glass foreground');
+    assert.equal(surface.overflow, false);
+  };
+  await checkSidebarSurface();
+  await page.screenshot({ path: 'e2e-out/sidebar-glass-expanded-light.png' });
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    useStore.setState(state => ({ runtime: { ...state.runtime, claude: { ...state.runtime.claude, ready: true, loggedIn: true } } }));
+  });
+  const draft = page.locator('.composer textarea');
+  await draft.fill('Keep this unsent draft while opening utilities');
+  await nav.getByRole('button', { name: /^Open Scheduled/ }).click();
+  const scheduleDialog = page.getByRole('dialog', { name: 'Schedule', exact: true });
+  await scheduleDialog.waitFor();
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'chat');
+  await scheduleDialog.getByRole('button', { name: 'New schedule', exact: true }).click();
+  const editorDialog = page.getByRole('dialog', { name: 'New scheduled run', exact: true });
+  await editorDialog.waitFor();
+  const editorBounds = await editorDialog.boundingBox();
+  assert.ok(editorBounds.x >= 0 && editorBounds.y >= 0 && editorBounds.y + editorBounds.height <= 900);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; }, theme);
+    await page.waitForTimeout(250);
+    const contrastResults = await editorDialog.evaluate(editor => {
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      const rgba = color => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data]; };
+      const over = (color, base) => color.slice(0, 3).map((v, i) => v * color[3] / 255 + base[i] * (1 - color[3] / 255));
+      const luminance = rgb => rgb.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
+      const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + .05) / (Math.min(luminance(a), luminance(b)) + .05);
+      const base = rgba(getComputedStyle(editor).backgroundColor);
+      const checks = [...editor.querySelectorAll('h3, p, label, .field-label, input, textarea, select, .weekday-btn, .preset-row button, .secondary')].map(node => {
+        const style = getComputedStyle(node), background = over(rgba(style.backgroundColor), base);
+        return { element: node.tagName + ':' + (node.textContent || node.getAttribute('placeholder') || node.getAttribute('type') || '').slice(0, 45), ratio: contrast(over(rgba(style.color), background), background) };
+      });
+      for (const node of editor.querySelectorAll('input[placeholder], textarea[placeholder]')) {
+        const style = getComputedStyle(node), placeholder = getComputedStyle(node, '::placeholder'), background = over(rgba(style.backgroundColor), base);
+        checks.push({ element: 'placeholder:' + node.getAttribute('placeholder'), ratio: contrast(over(rgba(placeholder.color), background), background) });
+      }
+      return { background: base, colorScheme: getComputedStyle(editor).colorScheme, checks };
+    });
+    assert.ok(contrastResults.background[3] >= 240 && contrastResults.background.slice(0, 3).every(c => theme === 'light' ? c > 220 : c < 110), `nested schedule follows ${theme} theme: ${JSON.stringify(contrastResults)}`);
+    assert.equal(contrastResults.colorScheme, theme);
+    assert.equal(await scheduleDialog.evaluate(node => getComputedStyle(node).backgroundColor), await editorDialog.evaluate(node => getComputedStyle(node).backgroundColor));
+    for (const check of contrastResults.checks) assert.ok(check.ratio >= 4.5, `${theme} schedule contrast: ${JSON.stringify(check)}`);
+    await page.screenshot({ path: `e2e-out/schedule-editor-${theme}.png` });
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; document.documentElement.style.colorScheme = 'light'; });
+  await page.keyboard.press('Escape');
+  await editorDialog.waitFor({ state: 'detached' });
+  assert.equal(await scheduleDialog.isVisible(), true);
+  await page.screenshot({ path: 'e2e-out/schedule-modal-light.png' });
+  await page.keyboard.press('Escape');
+  await scheduleDialog.waitFor({ state: 'detached' });
+  assert.equal(await draft.inputValue(), 'Keep this unsent draft while opening utilities');
+  await draft.fill('');
+  await openExtension('Skills');
+  assert.equal(await page.getByRole('button', { name: /^(Expand|Collapse) sidebar$/ }).count(), 0);
+  assert.equal(await page.locator('#sidebar-resize').count(), 0);
+  assert.equal(await page.locator('.sidebar-collapsed').count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Open Projects', exact: true }).isVisible(), true, 'projects stay available on Skills');
+  assert.equal(await nav.getByRole('button').count(), 4);
+  await checkSidebarSurface();
+  assert.equal(await extensionsButton().innerText(), '', 'the rail uses icon-only destinations');
+  await extensionsButton().hover();
+  const extensionsPopup = page.getByRole('dialog', { name: 'Extensions', exact: true });
+  await extensionsPopup.waitFor();
+  const triggerBox = await extensionsButton().boundingBox(), flyoutBox = await extensionsPopup.boundingBox();
+  assert.ok(flyoutBox.x > triggerBox.x + triggerBox.width, 'flyout sits to the right of the group');
+  assert.ok(Math.abs(flyoutBox.y - triggerBox.y) <= 1, 'flyout aligns with the group top');
+  assert.ok(flyoutBox.width <= 180);
+  const rows = await extensionsPopup.getByRole('button').all();
+  assert.equal(rows.length, 4);
+  const rowBoxes = await Promise.all(rows.map(row => row.boundingBox()));
+  assert.ok(rowBoxes.every((box, i) => i === 0 || rowBoxes[i - 1].y < box.y), 'extensions form one vertical column');
+  await extensionsPopup.getByRole('button', { name: /^Open MCP/ }).hover();
+  await page.waitForTimeout(250);
+  assert.equal(await extensionsPopup.isVisible(), true, 'crossing the gap preserves the flyout');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; }, theme);
+    await page.waitForTimeout(250);
+    const foregrounds = await extensionsPopup.getByRole('button').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color));
+    assert.ok(foregrounds.every(color => color === foregrounds[0]), `active, hovered and normal actions share the glass foreground: ${foregrounds}`);
+    assert.equal(foregrounds[0], await extensionsPopup.evaluate(node => getComputedStyle(node).color));
+    await page.screenshot({ path: `e2e-out/extensions-rail-${theme}.png` });
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; document.documentElement.style.colorScheme = 'light'; });
+  await extensionsPopup.getByRole('button', { name: /^Open MCP/ }).click();
+  const mcpDialog = page.getByRole('dialog', { name: 'MCP', exact: true });
+  await mcpDialog.waitFor();
+  await mcpDialog.getByRole('button', { name: 'Installed · 2', exact: true }).waitFor();
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
+  await mcpDialog.getByRole('button', { name: 'Agent settings', exact: true }).click();
+  const agentSettings = page.getByRole('dialog', { name: 'Settings', exact: true });
+  await agentSettings.waitFor();
+  await agentSettings.getByRole('button', { name: 'Close settings', exact: true }).click();
+  assert.equal(await page.getByRole('dialog', { name: 'MCP', exact: true }).count(), 0);
   await nav.getByRole("button", { name: /^Open Guide/ }).click();
   assert.equal(await page.locator(".sidebar-collapsed").count(), 1, "navigation clicks must not expand the sidebar");
-  await skillsButton().click();
+  await openExtension('Skills');
   const tabs = page.getByRole("tablist", { name: "Skills sections" });
   await tabs.getByRole("tab", { name: "My skills", exact: true }).click();
   await page.getByRole("tabpanel").getByRole("heading", { name: "My skills", exact: true }).waitFor();
@@ -68,17 +660,91 @@ try {
   await page.screenshot({ path: "e2e-out/navigation-skills-light.png" });
   const rail = await page.locator(".sidebar-mini").boundingBox();
   await page.mouse.click(rail.x + rail.width / 2, rail.y + rail.height - 130);
-  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).waitFor();
+  assert.equal(await page.locator(".sidebar-collapsed").count(), 1, "blank rail space is no longer an expand trigger");
+  await page.locator(".sidebar-mini").getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    useStore.setState({ authed: true, accountOwnerId: '18259a1e-9e88-4d3c-8655-6119f75b1599', accountName: 'Анна Волкова', accountEmail: 'anna@example.com' });
+  });
+  const accountButton = page.getByRole('button', { name: 'Open Profile', exact: true });
+  await accountButton.click();
+  const account = page.getByRole('region', { name: 'Profile', exact: true });
+  await account.getByRole('heading', { name: 'My account', exact: true }).waitFor();
+  await account.getByRole('heading', { name: 'Анна Волкова', exact: true }).waitFor();
+  assert.equal(await accountButton.innerText(), 'АВ');
+  const gradient = locator => locator.locator('.account-avatar').evaluate(el => getComputedStyle(el).backgroundImage);
+  const originalGradient = await gradient(account);
+  assert.match(originalGradient, /linear-gradient/);
+  assert.equal(await gradient(accountButton), originalGradient);
+  await account.getByText('Traffic over time', { exact: true }).waitFor();
+  assert.equal(await account.getByText('private-site.example').count(), 0);
+  assert.equal(await page.getByRole('dialog', { name: 'Profiles and proxies', exact: true }).count(), 0);
+  await page.screenshot({ path: 'e2e-out/account-profile.png' });
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    useStore.setState({ accountName: undefined, accountEmail: 'lee.park@example.com', accountOwnerId: 'ea0b1f65-010b-4dec-a77c-c24a3070ce3e' });
+  });
+  await account.getByRole('heading', { name: 'lee.park', exact: true }).waitFor();
+  assert.equal(await accountButton.innerText(), 'LP');
+  assert.notEqual(await gradient(account), originalGradient);
+  assert.equal(await gradient(account), await gradient(accountButton));
+  assert.equal(await account.getByText('anna@example.com').count(), 0);
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts');
+    useStore.setState({ personalProxies: [
+      { id: 'p1', name: 'Office', scheme: 'http', host: 'office.example', port: 8080 },
+      { id: 'p2', name: 'Home', scheme: 'socks5', host: 'home.example', port: 1080 },
+    ], loadPersonalProxies: async () => {} });
+  });
+  const proxyRail = page.getByRole('button', { name: 'Personal proxy', exact: true });
+  await proxyRail.hover();
+  const personalProxies = page.getByRole('dialog', { name: 'Personal proxies', exact: true });
+  await personalProxies.getByRole('searchbox', { name: 'Search personal proxies' }).fill('office');
+  await personalProxies.getByText('Office', { exact: true }).waitFor();
+  assert.equal(await personalProxies.getByText('Home', { exact: true }).count(), 0);
+  await page.screenshot({ path: 'e2e-out/personal-proxy-search.png' });
+  await personalProxies.getByRole('button', { name: 'Create proxy', exact: true }).click();
+  const createProxy = page.getByRole('dialog', { name: 'Create proxy', exact: true });
+  await createProxy.getByRole('button', { name: 'Close', exact: true }).click();
+  await proxyRail.click();
+  await personalProxies.getByRole('button', { name: 'Import proxies', exact: true }).click();
+  const bulkImport = page.getByRole('dialog', { name: 'Add proxies', exact: true });
+  await bulkImport.locator('input[type=file]').setInputFiles({ name: 'proxies.txt', mimeType: 'text/plain', buffer: Buffer.from('http://proxy-one.example:8080\nsocks5://proxy-two.example:1080') });
+  await bulkImport.getByText('2 valid', { exact: true }).waitFor();
+  await bulkImport.getByRole('textbox', { name: /Proxy list/ }).fill('bad proxy');
+  await bulkImport.getByText('1 need attention', { exact: true }).waitFor();
+  assert.equal(await bulkImport.getByRole('button', { name: 'Create proxy', exact: true }).isDisabled(), true);
+  await bulkImport.getByRole('button', { name: 'Close', exact: true }).click();
+  await openExtension('Skills');
   await page.setViewportSize({ width: 960, height: 640 });
   assert.equal(await page.locator(".skills-root").evaluate((node) => node.scrollWidth <= node.clientWidth + 1), true);
   await tabs.getByRole("tab", { name: "All skills", exact: true }).press("End");
   assert.equal(await tabs.getByRole("tab", { name: "Scripts", exact: true }).evaluate((node) => { const box = node.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth; }), true);
   await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
   await page.waitForTimeout(350); // Let the theme transition settle before visual QA.
+  await checkSidebarSurface();
   await page.screenshot({ path: "e2e-out/navigation-skills-narrow-dark.png" });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await nav.getByRole("button", { name: /^Open Connectors/ }).click();
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await openExtension('Connectors');
+  const connectorsDialog = page.getByRole('dialog', { name: 'Connectors', exact: true });
+  await connectorsDialog.waitFor();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; }, theme);
+    await page.waitForTimeout(250);
+    const colors = await connectorsDialog.evaluate(node => {
+      const style = getComputedStyle(node);
+      return { bg: style.backgroundColor, text: style.color, scheme: style.colorScheme, heading: getComputedStyle(node.querySelector('h2')).color };
+    });
+    assert.equal(colors.bg, theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(52, 62, 76)');
+    assert.equal(colors.text, theme === 'light' ? 'rgb(26, 28, 28)' : 'rgb(244, 246, 251)');
+    assert.equal(colors.heading, colors.text);
+    assert.equal(colors.scheme, theme);
+    await page.screenshot({ path: `e2e-out/connectors-modal-${theme}.png` });
+  }
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
+  await connectorsDialog.getByRole("button", { name: "Connect", exact: true }).click();
   const modal = page.getByRole("dialog", { name: /Multilogin/ });
   await modal.getByText("wails", { exact: true }).waitFor();
   await modal.getByText("Session storage", { exact: true }).waitFor();
@@ -90,8 +756,34 @@ try {
   await modal.getByRole("button", { name: "Connect selected workspace", exact: true }).click();
   await modal.getByText("qa@example.com", { exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.__navigationQA.calls.filter((call) => call.command.startsWith("multilogin_login_")).map((call) => call.command).slice(-2)), ["multilogin_login_open", "multilogin_login_complete"]);
+  await page.keyboard.press('Escape');
+  await modal.waitFor({ state: 'detached' });
+  assert.equal(await connectorsDialog.isVisible(), true);
+  await connectorsDialog.getByRole('button', { name: 'Close Connectors' }).click();
+  await connectorsDialog.waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(async () => (await import('/src/store.ts')).useStore.getState().tab), 'skills');
+  // Use the real createProject action, including the local/no-workspace state
+  // where the old guard silently returned an empty ID and closed the form.
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts'); const state = useStore.getState();
+    useStore.setState({ authed: false, activeWorkspaceId: undefined, workspaces: [], conversations: [], activeConvId: {}, workspaceSetupRequired: false });
+    state.setTab('chat');
+  });
+  await page.getByRole('button', { name: 'Open Projects', exact: true }).click();
+  await projectPopover.getByRole('button', { name: 'Create project', exact: true }).click();
+  const createLocal = page.getByRole('dialog', { name: 'New project', exact: true });
+  await createLocal.getByPlaceholder('Product research').fill('Local project from modal');
+  await createLocal.getByRole('button', { name: 'Create project', exact: true }).click();
+  await createLocal.waitFor({ state: 'detached' });
+  await projectPopover.getByRole('treeitem', { name: 'project Local project from modal', exact: true }).waitFor();
+  assert.equal(await page.evaluate(async () => {
+    const { useStore } = await import('/src/store.ts'); const state = useStore.getState();
+    const project = state.conversations.find(item => item.title === 'Local project from modal');
+    return !!project && project.workspaceId === undefined && state.activeConvId[project.agent] === project.id;
+  }), true);
+  await page.screenshot({ path: 'e2e-out/project-create-local.png' });
   assert.deepEqual(errors, []);
-  console.log("Navigation journey passed: stable sidebar positions, labels, blank-area expansion, tab keyboard navigation, narrow layout, themes and Multilogin connection.");
+  console.log("Navigation journey passed: permanent rail, project folders/independent sessions, global project access, titlebar workspace switch/create, Extensions/MCP, profile management, themes, narrow layout and Multilogin connection.");
 } catch (error) {
   if (page) {
     await mkdir("e2e-out", { recursive: true });

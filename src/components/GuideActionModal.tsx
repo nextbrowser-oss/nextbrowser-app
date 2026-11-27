@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useId, useRef } from "react";
 import { Icon } from "./Icon";
 
@@ -95,16 +96,14 @@ export function GuideActionModal({
         <div className="guide-action-modal-heading">
           <span
             className="guide-action-modal-mark"
-            style={{ background: confirmation.tint + "22", color: confirmation.tint }}
+            style={{ background: `color-mix(in srgb, ${confirmation.tint} 13%, transparent)`, color: confirmation.tint }}
           >
             <Icon name={confirmation.icon} size={24} strokeWidth={2.15} />
           </span>
           <h3 id={titleId}>{confirmation.title}</h3>
         </div>
         <div className="modal-actions guide-action-modal-actions">
-          <button ref={cancelRef} type="button" className="secondary" onClick={onCancel}>
-            Cancel
-          </button>
+          <button ref={cancelRef} type="button" className="secondary" onClick={onCancel}>{translate("Cancel")}</button>
           <button type="button" className="primary" onClick={onConfirm}>
             {confirmation.confirmLabel}
             <Icon name="chevron.right" size={14} />

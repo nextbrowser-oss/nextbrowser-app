@@ -1,9 +1,114 @@
+const { translate } = require("./interface-messages.cjs");
 const { readCLIVersion } = require("./cli-version.cjs");
+const { MIN_WINDOW_SIZE, interfaceZoomShortcut, restoredWindowSize, fitWindowSize, saveWindowSize, rememberWindowSize,
+  windowChromeOptions, applyWindowChrome, applyWindowZoom, windowState, controlWindow, watchWindowState } = require("./window-chrome.cjs");
+const chromeWindows = new WeakSet();
+const miniAppMcp = require('./mini-apps/mcp.cjs');
+const harness2 = require('./harness2.cjs');
+function desktopAgentContext(agent, sender, workspaceId, plain = false) {
+  const scope = !plain && workspaceId ? miniApps().agentScope(sender, workspaceId) : undefined;
+  const miniAppScope = ['nextbrowser','codex'].includes(agent) ? scope : undefined;
+  const desktopSettings = miniAppMcp.sessionSettings(agent, appSettings().snapshot().values, !!miniAppScope, !!scope);
+  const comparison = desktopSettings.effective.harness2Mode === 'mcp' ? {scope, run:harness2.createComparisons()} : undefined;
+  return {miniApps:miniAppScope, desktopSettings, comparison};
+}
+const stockMcp = require('./stock-mcp.cjs');
+let stockHost;
+const currentAgentScope = scope => !!scope && !scope.window.isDestroyed() && miniApps().agentScope(scope.window.webContents, scope.workspaceId) === scope;
+let permissionRequests;
+function agentPermissions() {
+  return permissionRequests ??= require('./agent-permission-requests.cjs').createPermissionRequests({ Notification, isCurrent: currentAgentScope });
+}
+function stockTools() {
+  return stockHost ??= stockMcp.createStockMcp({ dataRoot: dataDir(), dialog,
+    isCurrent: currentAgentScope, requestApproval: agentPermissions().request,
+    searchCatalog: search => searchCatalog({ search }, (...request) => systemProxy.fetch(...request)) });
+}
+// Brings Nextbrowser back in front after a sign-in finished in the system browser.
+function focusMainWindow() {
+  const window = BrowserWindow.getAllWindows().find(candidate => chromeWindows.has(candidate) && !candidate.isDestroyed());
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  if (process.platform === 'darwin') app.focus({ steal: true });
+  else { window.setAlwaysOnTop(true); window.focus(); window.setAlwaysOnTop(false); }
+}
+let miniAppsHost;
+function miniApps() {
+  return miniAppsHost ??= require('./mini-apps/host.cjs').createHost({
+    root: path.join(dataDir(), 'mini-apps-v1'), session, dialog, WebContentsView, BrowserWindow, libraryChanged: () => emit('mini-apps:changed'),
+    safeStorage, openExternal: url => shell.openExternal(url), focusApp: focusMainWindow,
+    catalogRequest: async (owner, route, body) => {
+      const { apiKey, baseURL } = await runtimeBackendEndpoint();
+      if (!apiKey) throw Error('Sign in to Nextbrowser to use the community catalog.');
+      return apiFetchJSON(baseURL, route, {
+        method: body === undefined ? 'GET' : 'PUT', redirect: 'error', signal: AbortSignal.timeout(30000),
+        headers: { authorization: 'Bearer ' + apiKey, 'X-Nextbrowser-Account': owner.slice('account/'.length) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    },
+  });
+}
+const { createStartPageServer } = require('./start-page-server.cjs');
+const startPageTransports = require('./start-page-transport.cjs').createStartPageTransports();
+let startPageServer;
+const startPageRequests = new Map();
+function requestStartPageDesktop(scope, action) {
+  return new Promise((resolve, reject) => {
+    const id = randomUUID();
+    const timer = setTimeout(() => { startPageRequests.delete(id); reject(new Error('Nextbrowser did not respond. Reopen Live and try again.')); }, 15_000);
+    startPageRequests.set(id, { sender: scope.sender, action: action.type, resolve, reject, timer });
+    try { scope.sender.send('start-page:request', { id, scope: { workspaceId: scope.workspaceId, profile: scope.profile, runtime: scope.runtime }, action }); }
+    catch (error) { clearTimeout(timer); startPageRequests.delete(id); reject(error); }
+  });
+}
 const { mcpProfileScope } = require("./mcp-profile-scope.cjs");
+const { createUserMcpStore, parseServerInput, inspectUserMcp } = require('./user-mcp.cjs');
+const { searchCatalog, githubConfig } = require('./mcp-catalog.cjs');
+let userMcpStore;
+function userMcp() {
+  return userMcpStore ??= createUserMcpStore({ filePath: path.join(app.getPath('userData'), 'mcp-servers.enc'), safeStorage });
+}
+function userMcpCommand(command, args) {
+  const binary = resolveBinary(command, '') || (path.isAbsolute(command) && fsSync.existsSync(command) ? command : '');
+  if (!binary) throw userError('The MCP executable was not found. Install its runtime or enter its full path.');
+  if (process.platform === 'win32' && /\.cmd$/i.test(binary) && /^(?:npx|npm)(?:\.cmd)?$/i.test(path.basename(command))) {
+    const name = /^npx/i.test(path.basename(command)) ? 'npx' : 'npm';
+    const script = path.join(path.dirname(binary), 'node_modules', 'npm', 'bin', `${name}-cli.js`);
+    const node = resolveBinary('node', '');
+    if (node && fsSync.existsSync(script)) return { file: node, args: [script, ...args] };
+  }
+  if (/\.(?:cmd|bat)$/i.test(binary)) throw userError('Use the server executable or its Node.js/Python entry point instead of a batch file.');
+  return commandSpec(binary, args);
+}
+function userMcpDependencies() { return { env: childEnv(), resolveCommand: userMcpCommand }; }
+function codexUserMcp(servers) {
+  const args = [], env = {};
+  for (const server of servers) {
+    const name = `custom_${server.id.replace(/-/g, '')}`;
+    const key = `NEXTBROWSER_MCP_${server.id.replace(/-/g, '')}`;
+    const spec = server.url ? { url: server.url, headers: server.headers } : userMcpCommand(server.command, server.args);
+    const node = resolveBinary('node', '');
+    if (!node) throw userError('Install Node.js to use additional MCP servers with Codex.');
+    const launcherDir = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked', 'electron') : __dirname;
+    const launcher = path.join(launcherDir, 'user-mcp-launcher.cjs');
+    args.push('-c', `mcp_servers.${name}.command=${JSON.stringify(node)}`, '-c', `mcp_servers.${name}.args=${JSON.stringify([launcher, key])}`);
+    // Secrets are passed through the process environment, never command arguments.
+    env[key] = JSON.stringify({ ...spec, env: server.env });
+    args.push('-c', `mcp_servers.${name}.env_vars=${JSON.stringify([key])}`, '-c', `mcp_servers.${name}.startup_timeout_sec=30`);
+  }
+  return { args, env };
+}
 const { addChatWorkspaceProfile } = require("./chat-profile-scope.cjs");
 const { requireVerificationCapableCLI, verificationFailureDialogOptions, verificationFailureDialogChoice } = require("./verification-policy.cjs");
 const { agentLoginStatus } = require("./agent-login-status.cjs");
-const { app, BrowserWindow, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net } = require("electron");
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, nativeImage, nativeTheme, dialog, Menu, clipboard, safeStorage, screen, session, net, Notification, systemPreferences } = require("electron");
+const { buildSupportDiagnostics } = require('./support-diagnostics.cjs');
+if (process.platform === "win32") {
+  // A native Live window sits beneath the shaped Electron host. The Windows
+  // DirectComposition swap chain can cover the holes in that host's region.
+  app.commandLine.appendSwitch("disable-direct-composition");
+}
 const { createMultiloginLogin } = require("./multilogin-login.cjs");
 const multiloginLogin = createMultiloginLogin({ BrowserWindow });
 const { autoUpdater } = require("electron-updater");
@@ -18,12 +123,50 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { SCHEDULE_WORKER_ARG, hasEnabledSchedules, flushScheduleWindow } = require("./schedule-background.cjs");
+const { RESET_MARKER, deleteCloudWorkspaces, finishPendingWorkspaceReset } = require("./workspace-reset.cjs");
+const { createLiveWindowManager, managedBrowserPID, nativeLiveRuntime } = require("./live-window.cjs");
+const accountActivity = require("./account-activity.cjs").createAccountActivity({
+  settings: appSettings,
+  workerFile: app.isPackaged
+    ? path.join(process.resourcesPath, "app.asar.unpacked", "electron", "account-activity-worker.cjs")
+    : path.join(__dirname, "account-activity-worker.cjs"),
+});
+const liveWindowHelperName = process.platform === "win32" ? "live-window-helper.exe" : "live-window-helper";
+const liveWindowHelper = app.isPackaged
+  ? path.join(process.resourcesPath, liveWindowHelperName)
+  : path.join(__dirname, "..", "build", liveWindowHelperName);
+const liveWindows = createLiveWindowManager({
+  onBrowserFocus: accountActivity.live,
+  helperPath: liveWindowHelper,
+  browserExecutable: async runtime => {
+    if (runtime === "dasbrowser") return childEnv().DASBROWSER_BIN;
+    if (runtime !== "camoufox") return childEnv().CLAWBROWSER_BIN;
+    return installedCamoufoxExecutable();
+  },
+  sessionPID: async (profile, runtime) => {
+    if (profile !== undefined && (typeof profile !== "string" || !profile.trim() || profile.length > 256)) return null;
+    const result = await executeNextctl(["--runtime", runtime, ...(profile ? ["--profile", profile] : []), "status", "--format", "json"], { timeoutMs: 8_000 });
+    if (result.code !== 0) return null;
+    return managedBrowserPID(JSON.parse(result.stdout).data, runtime);
+  },
+});
+let drainingLiveWindows = false;
+let scheduleWorker = process.argv.includes(SCHEDULE_WORKER_ARG);
+let scheduleQuitPreparation;
+let scheduleQuitPrepared = false;
+let restartForSchedules = false;
+let workspaceResetInProgress = false;
+const pendingDesktopCommands = new Set();
+const checkingWindowClose = new WeakSet();
+const allowedWindowClose = new WeakSet();
 const isDevPackage = app.isPackaged && require("../package.json").nextBrowserBuildChannel === "dev";
 const isDevBuild = !app.isPackaged || isDevPackage;
 // Display branding must not move existing account/session storage.
 const existingUserDataPath = app.getPath("userData");
 const existingSessionDataPath = app.getPath("sessionData");
 app.setName(isDevBuild ? "Nextbrowser DEV" : "Nextbrowser");
+if (process.platform === 'win32') app.setAppUserModelId(isDevBuild ? 'com.nextbrowser.desktop.dev' : 'com.nextbrowser.desktop');
 app.setPath("userData", existingUserDataPath);
 app.setPath("sessionData", existingSessionDataPath);
 const { devDataPaths } = require("./dev-data-root.cjs");
@@ -111,6 +254,7 @@ const {
   compareVersions,
   installedCamoufoxVersion,
   installedClawbrowserVersion,
+  missingDefaultBrowsers,
   installRuntimeUpdateWithVerification,
 } = require("./browser-runtime-updates.cjs");
 const { createMultiloginCredentialStore, exchangeAutomationToken } = require("./multilogin-credential.cjs");
@@ -144,10 +288,10 @@ const { describeBackendRequest, setBackendClientInfo, setBackendRequestObserver,
 const { childProxyEnv, createSystemProxy, describeProxyRoute, isLoopbackProxyList, proxyEnvNames } = require("./system-proxy.cjs");
 const { GATE_HOST, GATE_PORT, createNetworkDiagnostics, wantsNetworkDiagnostics } = require("./network-diagnostics.cjs");
 const { describeNbcResult, isNextctlBinary } = require("./nbc-failure-report.cjs");
-const { describeAgentResult, describeBuiltinAgentResult, describeTerminalExit } = require("./agent-failure-report.cjs");
+const { describeAgentResult, reportBuiltinRun, describeTerminalExit } = require("./agent-failure-report.cjs");
 const { BUILTIN_AGENT_ID } = require("./builtin-agent.cjs");
-const { BUILTIN_AGENT_SETTINGS_KEY, parseBuiltinAgentSettings, runBuiltinAgentTurn } = require("./builtin-agent-run.cjs");
-const { PROVIDERS: BUILTIN_AGENT_PROVIDERS, ProviderError, cleanModelId, createProviderClient, defaultModelFor, normalizeBaseURL, offeredModels, resolveProviderSettings, testProvider } = require("./builtin-agent-providers.cjs");
+const { BUILTIN_AGENT_SETTINGS_KEY, isStatusFollowUp, parseBuiltinAgentSettings, runBuiltinAgentTurn } = require("./builtin-agent-run.cjs");
+const { PROVIDERS: BUILTIN_AGENT_PROVIDERS, DEFAULT_PROVIDER, ProviderError, cleanModelId, createProviderClient, defaultModelFor, isFreeOpenRouterModel, normalizeBaseURL, offeredModels, resolveProviderSettings, testProvider } = require("./builtin-agent-providers.cjs");
 const { createBuiltinAgentKeyStore } = require("./builtin-agent-credential.cjs");
 const { describeInvokeFailure, describeMainFailure } = require("./invoke-failure-report.cjs");
 const { describeAutomationResult } = require("./automation-failure-report.cjs");
@@ -196,12 +340,10 @@ let clawbrowserRuntimeUpdateActive = false;
 let clawbrowserRuntimeLaunches = 0;
 let nextctlInstallPromise = null;
 let verifiedNextctlBin = "";
-let browserInstallPromise = null;
 let camoufoxInstallPromise = null;
 let dasbrowserInstallPromise = null;
 const browserRuntimeInstallAbortControllers = new Map();
 let agentControlServer = null;
-let agentControlURL = "";
 const agentControlScopes = new Map();
 const agentControlArtifactScopes = new Map();
 const agentControlProfileOwners = new Map();
@@ -271,7 +413,7 @@ async function systemProxyIsLoopback() {
   ]);
   return routes.some((route) => !route.failed && isLoopbackProxyList(route.value));
 }
-const errorReporter = createClientErrorReporter({
+const errorReporterOptions = {
   dir: path.join(app.getPath("userData"), "client-errors"),
   allowed: errorReportingAllowed({ isDevBuild }),
   client: {
@@ -285,6 +427,10 @@ const errorReporter = createClientErrorReporter({
   getAction: () => reportingContext.getStore()?.action,
   fetchImpl: (...args) => systemProxy.fetch(...args),
   enrich: (event) => (wantsNetworkDiagnostics(event) ? networkDiagnostics.snapshot() : undefined),
+};
+let errorReporter = createClientErrorReporter({
+  ...errorReporterOptions,
+  allowed: errorReporterOptions.allowed && !fsSync.existsSync(path.join(dataDir(), RESET_MARKER)),
 });
 const backendFetch = tracedBackendFetch();
 setBackendClientInfo({ name: "nextbrowser-app", version: app.getVersion() });
@@ -302,13 +448,26 @@ const environmentCollector = createEnvironmentCollector({
   installedRuntimes: installedBrowserRuntimes,
   multiloginConnected,
 });
-const clientEnvironment = createClientEnvironment({
+const clientEnvironmentOptions = {
   dir: path.join(app.getPath("userData"), "client-environment"),
   allowed: clientEnvironmentAllowed({ isDevBuild }),
   installId: () => errorReporter.installId,
   resolveEndpoint: runtimeBackendEndpoint,
   collect: environmentCollector.collect,
   fetchImpl: backendFetch,
+};
+let clientEnvironment = createClientEnvironment(clientEnvironmentOptions);
+const deviceSessions = require("./device-sessions.cjs").createDeviceSessions({
+  resolveEndpoint: runtimeBackendEndpoint, installId: () => errorReporter.installId,
+  name: os.hostname, platform: process.platform, fetchImpl: backendFetch,
+});
+const desktopActivityReporter = require("./desktop-activity.cjs").createDesktopActivityReporter({
+  allowed: !isDevBuild,
+  resolveEndpoint: runtimeBackendEndpoint,
+  fetchImpl: backendFetch,
+});
+const journeyReporter = require("./journey.cjs").createJourneyReporter({
+  allowed: !isDevBuild, resolveEndpoint: runtimeBackendEndpoint, fetchImpl: backendFetch,
 });
 let appQuitting = false;
 let quittingForUpdate = false;
@@ -381,7 +540,14 @@ function builtinAgentKeys() {
   return builtinAgentKeyStore;
 }
 function builtinAgentSettings() {
-  return parseBuiltinAgentSettings(appSettings().snapshot().values[BUILTIN_AGENT_SETTINGS_KEY]);
+  const settings = parseBuiltinAgentSettings(appSettings().snapshot().values[BUILTIN_AGENT_SETTINGS_KEY]);
+  return { ...settings, provider: settings.provider || DEFAULT_PROVIDER };
+}
+async function managedAgentEndpoint(provider, savedKeys) {
+  if (provider !== "openrouter" && provider !== "nvidia") return undefined;
+  if (provider === "nvidia" && (savedKeys ?? await builtinAgentKeys().saved()).nvidia) return undefined;
+  const { baseURL, apiKey } = await runtimeBackendEndpoint();
+  return { baseURL: baseURL ? `${baseURL}/v1/agent/${provider}` : "", apiKey };
 }
 /** What the setup shows: the saved settings, which providers have a key, and whether the agent can run. */
 async function builtinAgentStatus() {
@@ -390,18 +556,21 @@ async function builtinAgentStatus() {
     builtinAgentKeys().saved().catch(() => ({})),
     builtinAgentKeys().available().catch(() => false),
   ]);
+  const managed = await managedAgentEndpoint(settings.provider, keys);
+  delete keys.openrouter;
   let resolved;
-  try { resolved = resolveProviderSettings(settings); } catch { resolved = undefined; }
+  try { resolved = resolveProviderSettings(settings, managed?.baseURL); } catch { resolved = undefined; }
   const preset = BUILTIN_AGENT_PROVIDERS[settings.provider];
   const problem = !preset
     ? "Choose a model provider and add its key."
-    : preset.keyRequired && !keys[preset.id]
+    : managed && !managed.apiKey ? `Sign in to Nextbrowser to use managed ${preset.name} models.`
+    : !managed && preset.keyRequired && !keys[preset.id]
       ? `Add your ${preset.name} API key.`
       : preset.id === "custom" && !normalizeBaseURL(settings.baseURL)
         ? "Enter your provider's base URL."
         : !resolved ? "Pick a model." : "";
   return {
-    settings,
+    settings: resolved ? { ...settings, model: resolved.model } : settings,
     keys,
     secureStorage,
     configured: !problem,
@@ -416,6 +585,12 @@ async function builtinAgentStatus() {
 async function builtinAgentSetupClient(args) {
   const preset = BUILTIN_AGENT_PROVIDERS[args.provider];
   if (!preset) throw userError("Choose a provider.");
+  const managed = await managedAgentEndpoint(preset.id);
+  if (managed) {
+    const { baseURL, apiKey } = managed;
+    if (!baseURL || !apiKey) throw userError(`Sign in to Nextbrowser to use managed ${preset.name} models.`);
+    return { preset, client: createProviderClient({ provider: preset.id, baseURL, apiKey, managed: true, fetchImpl: (...request) => systemProxy.fetch(...request) }) };
+  }
   const baseURL = preset.id === "custom" ? normalizeBaseURL(args.baseURL) : preset.baseURL;
   if (!baseURL) throw userError("Enter the provider's base URL, such as http://localhost:11434/v1.");
   const apiKey = await builtinAgentKeys().load(preset.id);
@@ -430,57 +605,80 @@ async function builtinAgentSetupClient(args) {
  * agent CLI run. `mcpEnv` is the environment of its `nbc mcp`; a plain run
  * starts none.
  */
-async function runBuiltinAgent({ replyId, prompt, plain, run, mcpEnv, defaultProfile = "", onStep, limits }) {
+async function runBuiltinAgent({ replyId, prompt, chatTurn, plain, run, mcpEnv, desktopSettings, defaultProfile = "", onStep, onReport, limits }) {
   const controller = new AbortController();
   builtinAgentRuns.set(replyId, controller);
   const startedAt = Date.now();
   const settings = builtinAgentSettings();
+  let stockSession;
+  function finish(result) {
+    return reportBuiltinRun({
+      result, provider: result.provider || settings.provider, model: result.model || settings.model,
+      run, durationMs: Date.now() - startedAt,
+      outcome: { stopped: stoppedAgentRuns.has(replyId), timedOut: timedOutAgentRuns.has(replyId), quitting: appQuitting },
+    }, event => errorReporter.capture(event));
+  }
   try {
     let mcp;
-    if (!plain) {
+    const enableTools = !plain && !isStatusFollowUp(chatTurn?.request);
+    const artifactScope = !plain ? agentControlArtifactScopes.get(mcpEnv?.NEXTBROWSER_CONTROL_TOKEN) : undefined;
+    const desktopScope = artifactScope?.miniApps;
+    if (enableTools) {
       // The CLI install has its own status and reports; here it only decides
       // whether the agent gets browser tools.
       let binary = "";
       let setupError;
       try { binary = await resolveOrInstallNextctl(); } catch (error) { setupError = error; }
-      if (!binary) {
+      if (!binary && !desktopScope) {
         const reason = setupError instanceof Error && setupError.message
           ? `The Nextbrowser agent cannot use the browser yet. ${setupError.message}`
           : "Nextbrowser's browser tools are not installed yet. Wait for the setup to finish, then try again.";
-        return { status: "failed", code: 1, stdout: "", stderr: reason, reason, failure: { code: "tools_unavailable", expected: true } };
+        return finish({ status: "failed", code: 1, stdout: "", stderr: reason, reason, failure: { code: "tools_unavailable", expected: true } });
       }
-      const requestedTraceFile = activeAutomationTraceFile();
-      const traceFile = requestedTraceFile && await nextctlHasAutomationTrace(binary) ? requestedTraceFile : "";
-      await refreshSystemProxyEnv();
-      mcp = {
-        binary,
-        args: ["--verify-on-start-only", "mcp", ...(traceFile ? ["--automation-trace-file", traceFile] : [])],
-        env: childEnv({ ...mcpEnv, ...(traceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: traceFile } : {}) }),
-        onRunnerExit: reportRunnerExit,
-      };
+      if (binary) {
+        const requestedTraceFile = activeAutomationTraceFile();
+        const traceFile = requestedTraceFile && await nextctlHasAutomationTrace(binary) ? requestedTraceFile : "";
+        await refreshSystemProxyEnv();
+        const launch = browserAgentMcp(binary, traceFile, desktopSettings.effective.preferWebsiteWebMCP);
+        mcp = {
+          ...launch,
+          env: childEnv({ ...mcpEnv, ...launch.env, ...(traceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: traceFile } : {}) }),
+          onRunnerExit: reportRunnerExit,
+        };
+      }
     }
+    const managed = await managedAgentEndpoint(settings.provider);
+    if (desktopScope) stockSession = stockTools().open(desktopScope, mcpEnv.NEXTBROWSER_CONTROL_URL, controller.signal, artifactScope.conversationId);
     const result = await runBuiltinAgentTurn({
       settings,
-      loadKey: (provider) => builtinAgentKeys().load(provider),
+      useHarness2: run === "chat" && desktopSettings.effective.harness2Recovery,
+      managedProviderURL: managed?.baseURL,
+      loadKey: (provider) => managed ? managed.apiKey : builtinAgentKeys().load(provider),
       prompt,
+      chatTurn,
       plain,
       mcp,
+      userMcpServers: !plain && mcpEnv?.NEXTBROWSER_WORKSPACE_ID ? [
+        ...(agentControlArtifactScopes.get(mcpEnv.NEXTBROWSER_CONTROL_TOKEN)?.miniApps
+          ? [miniAppMcp.builtinServer(mcpEnv.NEXTBROWSER_CONTROL_URL, mcpEnv.NEXTBROWSER_CONTROL_TOKEN)] : []),
+        ...await userMcp().enabled(mcpEnv.NEXTBROWSER_WORKSPACE_ID),
+        ...(stockSession ? [stockSession.server] : []),
+      ] : [],
+      userMcpDeps: userMcpDependencies(),
       defaultProfile,
       fetchImpl: (...request) => systemProxy.fetch(...request),
       signal: controller.signal,
       onStep,
+      onReport,
       limits,
     });
-    reportDescribed(() => describeBuiltinAgentResult({
-      result,
-      provider: result.provider || settings.provider,
-      model: result.model || settings.model,
-      run,
-      durationMs: Date.now() - startedAt,
-      outcome: { stopped: stoppedAgentRuns.delete(replyId), timedOut: timedOutAgentRuns.delete(replyId), quitting: appQuitting },
-    }));
-    return result;
+    return finish(result);
+  } catch {
+    if (controller.signal.aborted) return {status:"cancelled", code:130, stdout:"", stderr:"", reason:""};
+    return finish({status:"failed", code:1, stdout:"", stderr:"", reason:"The agent could not finish this run. Review the last progress update and retry.", failure:{code:"internal",expected:false}});
   } finally {
+    controller.abort();
+    stockSession?.close();
     builtinAgentRuns.delete(replyId);
     stoppedAgentRuns.delete(replyId);
     timedOutAgentRuns.delete(replyId);
@@ -532,12 +730,22 @@ enabled = false
 default_tools_approval_mode = "approve"
 `;
 
-function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspaceId = "") {
+function browserAgentMcp(binary, automationTraceFile, preferWebMCP) {
+  const args = ["--verify-on-start-only", "mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])];
+  if (!preferWebMCP) return { binary, args, env: {} };
+  const directory = app.isPackaged ? path.join(process.resourcesPath, "app.asar.unpacked", "electron") : __dirname;
+  return { binary: process.execPath, args: [path.join(directory, "tab-mcp-launcher.cjs"), binary, ...args], env: { ELECTRON_RUN_AS_NODE: "1" } };
+}
+
+function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile, workspaceId, preferWebMCP) {
+  const launch = browserAgentMcp(nextctlBin, automationTraceFile, preferWebMCP);
   const runtimeEnv = childEnv({
+    ...launch.env,
     ...(automationTraceFile ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: automationTraceFile } : {}),
     NEXTBROWSER_WORKSPACE_ID: workspaceId,
   });
   const mcpEnvKeys = [
+    ...Object.keys(launch.env),
     "NEXTBROWSER_REQUIRE_VERIFY",
     "NEXTBROWSER_VERIFY_ON_START_ONLY",
     "NEXTBROWSER_PROXY_SAFETY_FILE",
@@ -574,8 +782,8 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspace
     "-c", 'plugins."clawbrowser@clawctl-local".mcp_servers.clawbrowser.enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".enabled=false',
     "-c", 'plugins."clawbrowser@nbc-local".mcp_servers.clawbrowser.enabled=false',
-    "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(nextctlBin)}`,
-    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(["--verify-on-start-only", "mcp", ...(automationTraceFile ? ["--automation-trace-file", automationTraceFile] : [])])}`,
+    "-c", `mcp_servers.nextbrowser.command=${JSON.stringify(launch.binary)}`,
+    "-c", `mcp_servers.nextbrowser.args=${JSON.stringify(launch.args)}`,
     "-c", `mcp_servers.nextbrowser.env=${mcpEnv}`,
     // Codex starts the MCP server itself. Forward the Recorder's ephemeral
     // trace path from the agent process; putting it only in the parent env is
@@ -588,9 +796,9 @@ function codexClawbrowserMCPArgs(nextctlBin, automationTraceFile = "", workspace
   ];
 }
 
-function codexClawbrowserArgs(nextctlBin, automationTraceFile = "", workspaceId = "") {
+function codexClawbrowserArgs(nextctlBin, automationTraceFile, workspaceId, preferWebMCP) {
   return [
-    ...codexClawbrowserMCPArgs(nextctlBin, automationTraceFile, workspaceId),
+    ...codexClawbrowserMCPArgs(nextctlBin, automationTraceFile, workspaceId, preferWebMCP),
     "--ask-for-approval", "never",
     "--sandbox", "workspace-write",
     "-c", "sandbox_workspace_write.network_access=true",
@@ -681,6 +889,7 @@ function terminalAgentId(value) {
 }
 
 function home() { return os.homedir(); }
+function localAgentWorkspace() { return devStorage ? path.join(devStorage.userData, "agent-workspace") : agentWorkspaceDir(home()); }
 function legacyAppRuntimeRoot() { return path.join(app.getPath("userData"), "runtime"); }
 function nextbrowserRuntimeRoot() {
   if (devStorage) return devStorage.runtime;
@@ -1010,24 +1219,10 @@ async function executeNextctlRaw(commandArgs, options = {}) {
         : resolveDasbrowserRuntime(dasbrowserRuntimeOptions());
       adaptedArgs = adaptDasbrowserArgs(adaptedArgs, executable);
     } else if (browserRuntime === "clawbrowser" && requiresBrowserRuntime(adaptedArgs)) {
-      await ensureClawbrowserRuntime(bin, { requestId: options.requestId });
-    } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs) && !(await installedCamoufoxVersion(nextbrowserRuntimeRoot()))) {
-      // Only the first start prepares Camoufox; starting an installed one must
-      // not show the install card.
-      setBrowserRuntimeInstallStatus("camoufox", "installing", { message: "Preparing the Camoufox browser runtime…", requestId: options.requestId });
-      try {
-        const result = await run(bin, ["--verify-on-start-only", ...adaptedArgs], options.extraEnv || {}, options);
-        if (result.code === 0) {
-          setBrowserRuntimeInstallStatus("camoufox", "ready");
-        } else {
-          setBrowserRuntimeInstallStatus("camoufox", "failed", { message: "We couldn't prepare Camoufox. Please retry." });
-        }
-        return result;
-      } catch (error) {
-        setBrowserRuntimeInstallStatus("camoufox", "failed", { message: String(error?.message || error) });
-        reportMainFailure("BROWSER_RUNTIME_INSTALL_FAILED", error, { runtime: "camoufox" });
-        throw error;
-      }
+      await ensureClawbrowserRuntime(options.requestId);
+    } else if (browserRuntime === "camoufox" && requiresBrowserRuntime(adaptedArgs)
+      && (browserRuntimeInstaller?.pending("camoufox") || !(await installedCamoufoxExecutable()))) {
+      await prepareMissingBrowser("camoufox", options.requestId);
     }
     return await run(bin, ["--verify-on-start-only", ...adaptedArgs], options.extraEnv || {}, options);
   } finally {
@@ -1058,7 +1253,10 @@ async function sendHostProfileFailure(response, { action, profile, runtime, star
 }
 
 async function ensureAgentControlServer() {
-  if (agentControlServer) return agentControlURL;
+  if (agentControlServer) {
+    if (!agentControlServer.listening) await require('node:events').once(agentControlServer, 'listening');
+    return `http://127.0.0.1:${agentControlServer.address().port}`;
+  }
   agentControlServer = http.createServer((request, response) => reportingContext.run({ action: agentControlAction(request) }, () => {
     const controlAction = reportingContext.getStore().action;
     // Set once the request names a profile, so a host error thrown while
@@ -1066,6 +1264,32 @@ async function ensureAgentControlServer() {
     let hostProfile;
     void (async () => {
       const action = request.url === "/profile/start" ? "start" : request.url === "/profile/stop" ? "stop" : "";
+      if (request.url === stockMcp.endpoint) return stockTools().serve(request, response);
+      if (request.url === miniAppMcp.endpoint) {
+        const token = /^Bearer (.+)$/i.exec(request.headers.authorization || '')?.[1];
+        const record = agentControlArtifactScopes.get(token);
+        const scope = record?.miniApps ?? record?.comparison?.scope;
+        const current = () => {
+          const active = agentControlArtifactScopes.get(token);
+          return !!scope && (active?.miniApps ?? active?.comparison?.scope) === scope &&
+            !scope.window.isDestroyed() && miniApps().agentScope(scope.window.webContents, scope.workspaceId) === scope;
+        };
+        return miniAppMcp.serve(request, response, current() && ((name, args) => {
+          if (!current()) throw Error('The account or workspace changed. Start a new agent turn.');
+          if (name === 'get_session_settings') return record.desktopSettings;
+          if (name.startsWith('harness2_') && record.comparison) {
+            if (agentControlArtifactScopes.get(token)?.comparison !== record.comparison) throw Error('The conversation changed. Start a new comparison.');
+            const result = record.comparison.run(name, args);
+            if (record.replyId) emit('agent:step', [record.replyId, {
+              harness2_propose:'Harness²: comparing two approaches',
+              harness2_probe:'Harness²: checking the evidence for an approach',
+              harness2_compose:'Harness²: comparison complete',
+            }[name]]);
+            return result;
+          }
+          return miniApps().agentTool(scope, name, args, current, record.conversationId);
+        }), {apps:!!record?.miniApps, comparisons:!!record?.comparison});
+      }
       const artifactSave = request.url === "/artifact/save";
       const projectCreate = request.url === "/project/create";
       const projectList = request.url === "/project/list";
@@ -1231,15 +1455,29 @@ async function ensureAgentControlServer() {
       }
     });
   }));
-  await new Promise((resolve, reject) => {
-    agentControlServer.once("error", reject);
-    agentControlServer.listen(0, "127.0.0.1", resolve);
-  });
-  const address = agentControlServer.address();
-  agentControlURL = `http://127.0.0.1:${address.port}`;
-  return agentControlURL;
+  try {
+    const ready = require('node:events').once(agentControlServer, 'listening');
+    agentControlServer.listen(0, "127.0.0.1");
+    await ready;
+    return `http://127.0.0.1:${agentControlServer.address().port}`;
+  } catch (error) {
+    agentControlServer = null;
+    throw error;
+  }
 }
-async function ensureClawbrowserRuntime(nextctlBin, options = {}) {
+async function prepareMissingBrowser(runtime, requestId) {
+  const installer = runtimeInstaller();
+  const { id, controller } = beginBrowserRuntimeInstall(requestId);
+  try {
+    const result = await (installer.pending(runtime) || installer.install([runtime], { missingOnly: true }));
+    controller?.signal.throwIfAborted();
+    const item = result.items.find((item) => item.runtime === runtime);
+    if (item?.status !== "ready") throw new Error(item?.errors?.[0]?.message || item?.message || `Could not install ${runtime}.`);
+  } finally {
+    finishBrowserRuntimeInstall(id, controller);
+  }
+}
+async function ensureClawbrowserRuntime(requestId) {
   const runtimeOptions = {
     platform: process.platform,
     homeDir: home(),
@@ -1247,34 +1485,11 @@ async function ensureClawbrowserRuntime(nextctlBin, options = {}) {
     runtimeRoot: nextbrowserRuntimeRoot(),
   };
   const existing = resolveBrowserRuntime(runtimeOptions);
-  if (existing) return existing;
-  if (browserInstallPromise) return browserInstallPromise;
-
-  browserInstallPromise = (async () => {
-    setBrowserRuntimeInstallStatus("clawbrowser", "downloading", { requestId: options.requestId });
-    const runtimeRoot = nextbrowserRuntimeRoot();
-    await Promise.all([
-      "data", "cache", "installer-bin", "agent-plugins",
-    ].map((dir) => fs.mkdir(path.join(runtimeRoot, dir), { recursive: true })));
-    const result = await run(nextctlBin, browserInstallArgs(runtimeRoot), {}, {
-      requestId: options.requestId,
-      timeoutMs: 60 * 60 * 1000,
-    });
-    const installed = resolveBrowserRuntime(runtimeOptions);
-    if (!installed) {
-      const detail = (result.stderr || result.stdout || "Clawbrowser installation failed").trim();
-      throw result.code === 0 ? new Error(detail) : nbcResultError(result, new Error(detail));
-    }
-    setBrowserRuntimeInstallStatus("clawbrowser", "ready");
-    return installed;
-  })().catch((error) => {
-    setBrowserRuntimeInstallStatus("clawbrowser", "failed");
-    reportMainFailure("BROWSER_RUNTIME_INSTALL_FAILED", error, { runtime: "clawbrowser" });
-    throw error;
-  }).finally(() => {
-    browserInstallPromise = null;
-  });
-  return browserInstallPromise;
+  if (existing && !browserRuntimeInstaller?.pending("clawbrowser")) return existing;
+  await prepareMissingBrowser("clawbrowser", requestId);
+  const installed = resolveBrowserRuntime(runtimeOptions);
+  if (!installed) throw new Error("Clawbrowser setup finished without a browser executable.");
+  return installed;
 }
 function dasbrowserRuntimeOptions() {
   return {
@@ -1643,9 +1858,16 @@ function safeName(name) {
   if (!/^[A-Za-z0-9._-]+$/.test(name) || name.includes("..")) throw new Error("Invalid app-data filename.");
   return name;
 }
-function emit(channel, payload) { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, payload); }
+function desktopWindows() {
+  return BrowserWindow.getAllWindows().filter(window => !miniAppsHost?.isGuest(window.webContents));
+}
+function desktopDialogOwner() {
+  const focused = BrowserWindow.getFocusedWindow();
+  return focused && !miniAppsHost?.isGuest(focused.webContents) ? focused : desktopWindows()[0];
+}
+function emit(channel, payload) { for (const window of desktopWindows()) window.webContents.send(channel, payload); }
 function focusMainWindow() {
-  const window = BrowserWindow.getAllWindows()[0];
+  const window = desktopWindows()[0];
   if (!window) return null;
   if (process.platform === "darwin") app.focus({ steal: true });
   if (window.isMinimized()) window.restore();
@@ -1653,6 +1875,19 @@ function focusMainWindow() {
   window.moveTop();
   window.focus();
   return window;
+}
+
+function openScheduledWorkerWindow() {
+  if (scheduleWorker) {
+    scheduleWorker = false;
+    if (app.isReady()) {
+      void app.dock?.show();
+      emit("schedule:foreground");
+      startAutoUpdater();
+      startBrowserRuntimeUpdateChecks();
+    }
+  }
+  return focusMainWindow();
 }
 function handleDeepLink(rawUrl) {
   if (!rawUrl || typeof rawUrl !== "string") return false;
@@ -1667,7 +1902,7 @@ function handleDeepLink(rawUrl) {
     pairingId: parsed.searchParams.get("pairing_id") || "",
     status: parsed.searchParams.get("status") || "",
   };
-  focusMainWindow();
+  openScheduledWorkerWindow();
   emit("auth:deeplink", payload);
   return true;
 }
@@ -1810,7 +2045,7 @@ async function checkForBrowserRuntimeUpdates() {
     ...browserRuntimeUpdateStatus,
     status: "checking",
   });
-  browserRuntimeUpdateCheckPromise = checkBrowserRuntimeUpdates({
+  browserRuntimeUpdateCheckPromise = installedCamoufoxExecutable().then((camoufox) => checkBrowserRuntimeUpdates({
     fetchImpl: systemProxy.fetch,
     runtimeRoot: nextbrowserRuntimeRoot(),
     clawbrowserExecutable,
@@ -1819,9 +2054,10 @@ async function checkForBrowserRuntimeUpdates() {
     readDasbrowserVersion: installedDasbrowserVersion,
     isRuntimeInstalled: {
       clawbrowser: !!clawbrowserExecutable,
+      camoufox: !!camoufox,
       dasbrowser: !!resolveDasbrowserRuntime(dasbrowserRuntimeOptions()),
     },
-  }).then((status) => {
+  })).then((status) => {
     setBrowserRuntimeUpdateStatus(status);
     return status;
   }).catch((error) => {
@@ -1844,6 +2080,13 @@ function camoufoxVenvPython() {
   return process.platform === "win32"
     ? path.join(venv, "Scripts", "python.exe")
     : path.join(venv, "bin", "python");
+}
+async function installedCamoufoxExecutable() {
+  const python = camoufoxVenvPython();
+  if (!fsSync.existsSync(python)) return null;
+  const result = await run(python, ["-c", "from camoufox.pkgman import camoufox_path, launch_path; print(launch_path(camoufox_path(download_if_missing=False)))"], {}, { timeoutMs: 8_000 }).catch(() => null);
+  const executable = result?.stdout.trim().split(/\r?\n/).at(-1);
+  return result?.code === 0 && executable && path.isAbsolute(executable) && fsSync.existsSync(executable) ? executable : null;
 }
 async function findClawbrowserReleaseAsset(root) {
   const expected = process.platform === "darwin" ? "Clawbrowser.app" : process.platform === "win32" ? "clawbrowser.exe" : "clawbrowser";
@@ -1873,15 +2116,9 @@ async function replaceClawbrowserRelease(source, release, options = {}) {
   const dataDir = path.join(nextbrowserRuntimeRoot(), "data");
   await fs.mkdir(dataDir, { recursive: true });
   const isBundle = process.platform === "darwin";
-  // The Linux launcher is a script that execs clawbrowser.real next to it, so
-  // the whole release folder is installed, not the launcher alone.
-  const isFolder = process.platform === "linux";
-  const target = isBundle
-    ? path.join(dataDir, "Clawbrowser.app")
-    : isFolder
-      ? path.join(dataDir, "Clawbrowser")
-      : path.join(dataDir, process.platform === "win32" ? "clawbrowser.exe" : "clawbrowser");
-  const executable = isFolder ? path.join(target, "clawbrowser") : target;
+  // Portable Windows and Linux executables need the libraries alongside them.
+  const target = path.join(dataDir, isBundle ? "Clawbrowser.app" : "Clawbrowser");
+  const executable = isBundle ? target : path.join(target, path.basename(source));
   const staged = `${target}.update-${randomUUID()}`;
   const backup = `${target}.previous-${randomUUID()}`;
   let backedUp = false;
@@ -1890,11 +2127,8 @@ async function replaceClawbrowserRelease(source, release, options = {}) {
       await fs.cp(source, staged, dasbrowserAppCopyOptions());
       const signature = await run("codesign", ["--verify", "--deep", "--strict", staged], {}, { timeoutMs: 120_000 });
       if (signature.code !== 0) throw new Error("The downloaded Clawbrowser app failed macOS signature verification.");
-    } else if (isFolder) {
-      await fs.cp(path.dirname(source), staged, { recursive: true, verbatimSymlinks: true });
     } else {
-      await fs.copyFile(source, staged);
-      if (process.platform !== "win32") await fs.chmod(staged, 0o755);
+      await fs.cp(path.dirname(source), staged, { recursive: true, verbatimSymlinks: true });
     }
     try {
       await fs.rename(target, backup);
@@ -1922,7 +2156,7 @@ async function replaceClawbrowserRelease(source, release, options = {}) {
     if (backedUp) await fs.rm(backup, { recursive: true, force: true });
     // Earlier versions copied only the Linux launcher script to the data
     // root, where it cannot find clawbrowser.real.
-    if (isFolder) await removeStrayLinuxLauncher(path.join(dataDir, "clawbrowser"));
+    if (process.platform === "linux") await removeStrayLinuxLauncher(path.join(dataDir, "clawbrowser"));
   } catch (error) {
     await fs.rm(staged, { recursive: true, force: true }).catch(() => undefined);
     if (backedUp) {
@@ -2006,12 +2240,12 @@ async function releaseHasWindowsSetup(root) {
   const entries = await fs.readdir(root, { recursive: true }).catch(() => []);
   return entries.some((entry) => path.basename(String(entry)).toLowerCase() === "setup.exe");
 }
-async function installClawbrowserWithNextctl(nextctlBin) {
-  let result = await run(nextctlBin, ["update", "--browser-only", "--format", "json"], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 30 * 60 * 1000 });
-  if (result.code !== 0 && /unknown flag: --browser-only/.test(`${result.stderr}${result.stdout}`)) {
-    // nextctl releases before --browser-only update the browser as part of a full update.
-    result = await run(nextctlBin, ["update", "--format", "json"], { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 30 * 60 * 1000 });
-  }
+async function installClawbrowserWithNextctl(nextctlBin, extracted, release) {
+  const runtimeRoot = nextbrowserRuntimeRoot();
+  const args = [...browserInstallArgs(runtimeRoot), "--source-root", extracted, "--clawbrowser-install-ref", release.version];
+  // Use the extracted setup.exe from the selected platform archive. Running
+  // "update" here would query the unauthenticated releases API a second time.
+  const result = await run(nextctlBin, args, { NBC_AUTO_UPDATE: "0" }, { timeoutMs: 60 * 60 * 1000 });
   if (result.code !== 0) {
     let message = "";
     try {
@@ -2021,16 +2255,25 @@ async function installClawbrowserWithNextctl(nextctlBin) {
     }
     throw nbcResultError(result, new Error(message || String(result.stderr || result.stdout || "").trim().slice(0, 800) || "nextctl could not install Clawbrowser."));
   }
+  const installed = JSON.parse(result.stdout)?.data?.browser_path;
+  if (!installed || !path.isAbsolute(installed) || !launchable(installed)) throw new Error("Windows setup did not return an installed Clawbrowser executable.");
+  const data = path.join(runtimeRoot, "data");
+  await fs.mkdir(data, { recursive: true });
+  await fs.writeFile(path.join(data, ".clawbrowser-browser-release.json"), JSON.stringify({
+    repository: "clawbrowser/clawbrowser", version: release.version, asset_name: release.assetName,
+    archive_url: release.url, browser_path: installed, source: "release-archive",
+  }));
 }
-async function updateClawbrowserRuntime(latestVersion, { signal, onProgress = () => {}, downloadUrl } = {}) {
+async function updateClawbrowserRuntime(latestVersion, { signal, onProgress = () => {}, downloadUrl, digest, firstInstall = false } = {}) {
   const runtimeRoot = nextbrowserRuntimeRoot();
   const release = clawbrowserReleaseAsset(process.platform, process.arch, latestVersion);
   const nextctlBin = await resolveOrInstallNextctl();
-  clawbrowserRuntimeUpdateActive = true;
+  const checkIdle = firstInstall ? async () => {} : () => assertClawbrowserRuntimeIdle(nextctlBin);
+  clawbrowserRuntimeUpdateActive = !firstInstall;
   try {
     // Refuse before downloading, then check again after staging because a
     // profile may have been started while the archive was in flight.
-    await assertClawbrowserRuntimeIdle(nextctlBin);
+    await checkIdle();
     return await installRuntimeUpdateWithVerification({
       label: "Clawbrowser",
       expectedVersion: latestVersion,
@@ -2039,22 +2282,28 @@ async function updateClawbrowserRuntime(latestVersion, { signal, onProgress = ()
         try {
           const archive = path.join(tempDir, release.assetName);
           const extracted = path.join(tempDir, "extract");
-          await downloadUpdateFile({ fetchImpl: systemProxy.fetch, url: downloadUrl || release.url, target: archive, signal, onProgress: (progress) => onProgress({ ...progress, phase: "downloading", canCancel: true, message: "Downloading Clawbrowser…" }) });
+          const url = downloadUrl || release.url;
+          if (!digest) {
+            // The GitHub HTML fallback has no digest field. Newer releases also
+            // publish a checksum alongside the archive, including Windows setup.
+            const checksum = await systemProxy.fetch(`${url}.sha256`, { signal: AbortSignal.any([signal || new AbortController().signal, AbortSignal.timeout(10_000)]) });
+            if (checksum.ok) digest = `sha256:${(await checksum.text()).trim().split(/\s+/)[0]}`;
+            else if (checksum.status !== 404) throw new Error(`Could not check the browser archive checksum (HTTP ${checksum.status}).`);
+          }
+          await downloadUpdateFile({ fetchImpl: systemProxy.fetch, url, target: archive, digest, signal, onProgress: (progress) => onProgress({ ...progress, phase: "downloading", canCancel: true, message: "Downloading Clawbrowser…" }) });
           signal?.throwIfAborted();
           onProgress({ phase: "installing", percent: undefined, canCancel: false, message: "Installing and verifying Clawbrowser. Installation must finish before stopping." });
           await extractArchive(archive, release.kind, extracted);
           const source = await findClawbrowserReleaseAsset(extracted);
           if (!source && process.platform === "win32" && await releaseHasWindowsSetup(extracted)) {
-            // Windows releases now ship setup.exe instead of a portable
-            // clawbrowser.exe. nextctl runs that installer, normalizes the
-            // install and records its version, so let it do the install.
-            await assertClawbrowserRuntimeIdle(nextctlBin);
-            await installClawbrowserWithNextctl(nextctlBin);
+            // Some Windows releases use native setup instead of a portable folder.
+            await checkIdle();
+            await installClawbrowserWithNextctl(nextctlBin, extracted, { ...release, url: downloadUrl || release.url });
             return;
           }
           if (!source) throw new Error("The Clawbrowser release did not contain a browser executable.");
-          await replaceClawbrowserRelease(source, release, {
-            beforeActivate: () => assertClawbrowserRuntimeIdle(nextctlBin),
+          await replaceClawbrowserRelease(source, { ...release, url: downloadUrl || release.url }, {
+            beforeActivate: checkIdle,
           });
         } finally {
           await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
@@ -2178,12 +2427,13 @@ function runtimeInstaller() {
     installRuntime: async (update, onProgress, signal) => {
       try {
         signal.throwIfAborted();
-        if (update.runtime === "clawbrowser") await updateClawbrowserRuntime(update.latestVersion, { signal, onProgress, downloadUrl: update.downloadUrl });
+        if (update.runtime === "clawbrowser") await updateClawbrowserRuntime(update.latestVersion, { signal, onProgress, downloadUrl: update.downloadUrl, digest: update.digest, firstInstall: update.status === "not-installed" });
         else if (update.runtime === "camoufox") {
           // Python mutates the environment. It finishes safely if cancellation
           // is requested, independently of the other browser's download.
           onProgress({ phase: "preparing", percent: undefined, canCancel: false, message: "Preparing the Camoufox Python environment…" });
           await updateCamoufoxRuntime(update.latestVersion, onProgress);
+          if (!(await installedCamoufoxExecutable())) throw new Error("Camoufox setup finished without a browser executable.");
         } else if (update.runtime === "dasbrowser") await ensureDasbrowserRuntime({ force: true, reportStatus: false, signal, onProgress });
         onProgress({ phase: "verifying", percent: undefined, canCancel: false, message: `Verifying installed ${update.name} version…` });
         const expected = assertRuntimeReleaseVersion(update.latestVersion);
@@ -2202,8 +2452,18 @@ async function installBrowserRuntimeUpdates(requestedRuntimes = []) {
   return runtimeInstaller().install(requestedRuntimes);
 }
 function startBrowserRuntimeUpdateChecks() {
-  setTimeout(() => { void checkForBrowserRuntimeUpdates(); }, 5_000);
-  if (browserRuntimeUpdateTimer) clearInterval(browserRuntimeUpdateTimer);
+  if (browserRuntimeUpdateTimer) return;
+  setTimeout(async () => {
+    try {
+      const check = await checkForBrowserRuntimeUpdates();
+      const missing = missingDefaultBrowsers(check);
+      if (missing.length && process.env.NEXTBROWSER_SMOKE_LAUNCH !== "1") {
+        await runtimeInstaller().install(missing, { missingOnly: true });
+      }
+    } catch (error) {
+      reportMainFailure("BROWSER_RUNTIME_INSTALL_FAILED", error);
+    }
+  }, 5_000);
   browserRuntimeUpdateTimer = setInterval(() => {
     void checkForBrowserRuntimeUpdates();
   }, BROWSER_RUNTIME_UPDATE_CHECK_INTERVAL_MS);
@@ -2240,7 +2500,105 @@ async function apiFetchJSON(baseURL, route, options = {}) {
 }
 
 async function invokeCommand(command, args = {}, sender) {
+  if (workspaceResetInProgress) throw userError("Nextbrowser is resetting its data.");
   switch (command) {
+    case "live_window_permission": {
+      // macOS moves the browser window through the Accessibility API, which
+      // needs the user's permission for Nextbrowser.
+      if (process.platform !== "darwin") return { trusted: true };
+      if (systemPreferences.isTrustedAccessibilityClient(false)) return { trusted: true };
+      if (args.request === true) {
+        systemPreferences.isTrustedAccessibilityClient(true);
+        await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility");
+      }
+      return { trusted: false };
+    }
+    case "live_window_available":
+    case "live_window": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      const available = ["win32", "darwin"].includes(process.platform) && !scheduleWorker && window &&
+        chromeWindows.has(window) && window.webContents === sender && fsSync.existsSync(liveWindowHelper);
+      if (command === "live_window_available") return !!available && nativeLiveRuntime(args.runtime);
+      if (!available || appQuitting) return null;
+      return liveWindows.handle(window, args);
+    }
+    case "live_start_page_url": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      if (!window || !chromeWindows.has(window) || window.webContents !== sender ||
+          !['clawbrowser', 'camoufox', 'dasbrowser'].includes(args.runtime) || typeof args.workspaceId !== 'string' ||
+          (args.profile != null && (typeof args.profile !== 'string' || args.profile.length > 256))) throw userError('Select a browser profile in this workspace.');
+      const scope = { sender, workspaceId: args.workspaceId, runtime: args.runtime, profile: args.profile || '__default' };
+      await requestStartPageDesktop(scope, { type: 'authorize' });
+      startPageServer ??= createStartPageServer({ distDir: path.join(__dirname, '..', 'dist'), storageDir: dataDir(), requestDesktop: requestStartPageDesktop });
+      const url = await startPageServer.open(scope);
+      if (args.runtime !== 'camoufox') {
+        const result = await executeNextctl(['--runtime', args.runtime, ...(args.profile ? ['--profile', args.profile] : []), 'status', '--format', 'json'], { timeoutMs: 8_000 });
+        const status = result.code === 0 ? JSON.parse(result.stdout).data : null;
+        if (!managedBrowserPID(status, args.runtime)) throw userError('Open this local browser profile first.');
+        await startPageTransports.ensure(status.session.endpoint, url);
+      }
+      return url;
+    }
+    case "start_page_response": {
+      const pending = startPageRequests.get(args.id);
+      if (!pending || pending.sender !== sender) return null;
+      clearTimeout(pending.timer); startPageRequests.delete(args.id);
+      if (args.error) pending.reject(new Error(String(args.error).slice(0, 300)));
+      else {
+        pending.resolve(args.data);
+        if (['draft', 'resume'].includes(pending.action) && args.data?.opened) {
+          const window = BrowserWindow.fromWebContents(sender);
+          if (window && !window.isDestroyed()) { window.show(); window.focus(); }
+        }
+      }
+      return null;
+    }
+    case "workspace_emergency_reset": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      if (!window || !chromeWindows.has(window) || window.webContents !== sender || args.confirmation !== "DROP") {
+        throw userError("Type DROP in the emergency reset dialog to confirm.");
+      }
+      workspaceResetInProgress = true;
+      try {
+        cancelAllCommands();
+        for (const child of children.values()) child.kill();
+        for (const run of builtinAgentRuns.values()) run.abort();
+        for (const terminal of terminals.values()) terminal.process.kill();
+        agentControlScopes.clear();
+        agentControlArtifactScopes.clear();
+        cancelAllAutomationRecipes();
+        cancelAllAutomationElementPicks();
+        cancelAllAutomationPageRecordings();
+        // Drain writes already accepted before blocking new renderer commands.
+        const drained = await new Promise(resolve => {
+          const timeout = setTimeout(() => resolve(false), 30_000);
+          void Promise.allSettled(pendingDesktopCommands).then(() => {
+            clearTimeout(timeout);
+            resolve(true);
+          });
+        });
+        if (!drained) throw userError("Some Nextbrowser operations are still running. Close them and retry the reset.");
+        const configFile = path.join(nextbrowserRuntimeRoot(), "config", "config.json");
+        const saved = await fs.readFile(configFile, "utf8").catch(error => {
+          if (error.code === "ENOENT") return "{}";
+          throw error;
+        });
+        if (JSON.parse(saved).api_key || args.connected === true) {
+          const env = childEnv();
+          await deleteCloudWorkspaces({ list: () => listWorkspaces({ env }), remove: id => deleteWorkspace(id, { env }) });
+        }
+        await writeFileAtomic(path.join(dataDir(), RESET_MARKER), "pending", { durable: true });
+        scheduleQuitPrepared = true;
+        restartForSchedules = false;
+        const restartArgs = process.argv.slice(1).filter(arg => arg !== SCHEDULE_WORKER_ARG && !arg.startsWith(`${DEEP_LINK_PROTOCOL}:`));
+        app.relaunch({ args: restartArgs });
+        app.quit();
+        return null;
+      } catch (error) {
+        workspaceResetInProgress = false;
+        throw error;
+      }
+    }
     case "github_stars": {
       return requestGitHubStars({ refresh: args.refresh === true });
     }
@@ -2394,6 +2752,27 @@ async function invokeCommand(command, args = {}, sender) {
         timeoutMs: args.timeoutMs,
       });
     }
+    case 'user_mcp_list': return userMcp().list(args.workspaceId);
+    case 'user_mcp_catalog': return searchCatalog(args, (...request) => systemProxy.fetch(...request));
+    case 'user_mcp_github': return githubConfig(args.url, (...request) => systemProxy.fetch(...request));
+    case 'user_mcp_add': {
+      const config = parseServerInput(args);
+      if (JSON.stringify(config).includes('REPLACE_')) throw userError('Fill in the required values marked REPLACE_ before connecting.');
+      if (!await userMcp().available()) throw userError('Secure storage is unavailable. Unlock your system keychain and try again.');
+      const existing = await userMcp().list(args.workspaceId);
+      if (existing.some(server => server.name.toLowerCase() === config.name.toLowerCase())) throw userError('A server with this name already exists.');
+      if (existing.length >= 20) throw userError('A workspace can contain up to 20 MCP servers.');
+      const tools = await inspectUserMcp(config, userMcpDependencies());
+      return userMcp().add(args.workspaceId, config, tools);
+    }
+    case 'user_mcp_test': {
+      const config = await userMcp().get(args.workspaceId, args.id);
+      const tools = await inspectUserMcp(config, userMcpDependencies());
+      await userMcp().change(args.workspaceId, args.id, { tools, checkedAt: new Date().toISOString() });
+      return { tools };
+    }
+    case 'user_mcp_toggle': await userMcp().change(args.workspaceId, args.id, { enabled: args.enabled === true }); return null;
+    case 'user_mcp_remove': await userMcp().remove(args.workspaceId, args.id); return null;
     case "nextctl_resolve": return await resolveOrInstallNextctl();
     case "nextctl_install_status": return nextctlInstallStatus;
     case "nextctl_reinstall": {
@@ -2406,7 +2785,7 @@ async function invokeCommand(command, args = {}, sender) {
     case "browser_runtime_install_status": return browserRuntimeInstallStatus;
     case "browser_runtime_available": {
       const runtime = ["clawbrowser", "dasbrowser", "camoufox"].includes(args.runtime) ? args.runtime : "clawbrowser";
-      if (runtime === "camoufox") return !!(await installedCamoufoxVersion(nextbrowserRuntimeRoot()));
+      if (runtime === "camoufox") return !!(await installedCamoufoxExecutable());
       if (runtime === "dasbrowser") return !!resolveDasbrowserRuntime(dasbrowserRuntimeOptions());
       return !!resolveBrowserRuntime({ platform: process.platform, homeDir: home(), env: process.env, runtimeRoot: nextbrowserRuntimeRoot() });
     }
@@ -2439,6 +2818,16 @@ async function invokeCommand(command, args = {}, sender) {
       });
     }
     case "nextctl_cancel": return cancelCommand(args.requestId) || cancelBrowserRuntimeInstall(args.requestId);
+    case "support_diagnostics_copy": {
+      const pinned = process.env.NEXTCTL_BIN ? expand(process.env.NEXTCTL_BIN) : null;
+      const binary = (pinned && launchable(pinned) ? pinned : null) || verifiedNextctlBin || (launchable(managedNextctlBin()) ? managedNextctlBin() : null);
+      let cliResult;
+      if (binary) cliResult = await run(binary, ['debug', '--check-auth', '--format', 'json'], { NBC_AUTO_UPDATE: '0' }, { timeoutMs: 7_000 }).catch(() => null);
+      const report = buildSupportDiagnostics({ appVersion: appBuildVersion, platform: process.platform, arch: process.arch, osVersion: systemVersion(), cliPath: binary, cliResult,
+        runtimes: await installedBrowserRuntimes().catch(() => []), errors: errorReporter.recentErrors || [], homeDir: os.homedir() });
+      clipboard.writeText(report.text);
+      return { copied: true, cliStatus: report.cliStatus };
+    }
     case "nextctl_version": {
       const bin = await resolveOrInstallNextctl(); if (!bin) throw new Error("not found");
       const version = await readCLIVersion(bin, run);
@@ -2473,8 +2862,12 @@ async function invokeCommand(command, args = {}, sender) {
         throw error;
       }
     }
+    case "device_sessions_list": {
+      if (!sender || !chromeWindows.has(BrowserWindow.fromWebContents(sender))) throw userError("Open device sessions in the desktop app.");
+      return deviceSessions.list();
+    }
     case "account_logout": {
-      await clearRuntimeCredential({ runtimeRoot: nextbrowserRuntimeRoot() });
+      await deviceSessions.logout(() => clearRuntimeCredential({ runtimeRoot: nextbrowserRuntimeRoot() }));
       return null;
     }
     case "workspace_profile_created": {
@@ -2513,14 +2906,60 @@ async function invokeCommand(command, args = {}, sender) {
       const token = encodeURIComponent(String(args.pollToken || ""));
       return apiFetchJSON(args.apiBaseUrl, `/v1/pairing-requests/${id}?poll_token=${token}`);
     }
+    case "account_github_profile": {
+      const binary = resolveBinary("gh", "");
+      if (!binary) return { status: "missing" };
+      const env = { ...childEnv(), GH_PROMPT_DISABLED: "1" };
+      // Only use the desktop user's saved GitHub CLI account, never an inherited build token.
+      for (const key of Object.keys(env)) {
+        if (/^(GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN|GH_DEBUG)$/i.test(key)) delete env[key];
+      }
+      const result = await runCommand(binary, ["api", "--hostname", "github.com", "user", "--jq", ".login"],
+        { env, timeoutMs: 15000, maxBuffer: 8192 });
+      if (result.code !== 0) return { status: "unavailable" };
+      const login = result.stdout.trim();
+      if (!/^[a-z0-9][a-z0-9_-]{0,99}$/i.test(login)) return { status: "unavailable" };
+      return { status: "connected", login };
+    }
+    case "account_manage_identity": {
+      if (!["email", "password"].includes(args.action)) throw Error("Unknown account setting.");
+      const origin = "https://app.nextbrowser.com";
+      try {
+        const result = await fetch(origin + "/api/account/capabilities", {redirect:"error",signal:AbortSignal.timeout(5000)});
+        if (!result.ok || (await result.json()).accountSettings !== 1) return false;
+      } catch { return false; }
+      await shell.openExternal(origin + "/api/session/login?next=" + encodeURIComponent("/account?edit=" + args.action));
+      return true;
+    }
     case "open_external": {
       await shell.openExternal(String(args.url || ""));
       return null;
     }
     case "nodemaven_send_invite": return sendNodeMavenInvite({ env: childEnv() });
     case "app_platform": return { platform: process.platform, arch: process.arch };
+    case "app_set_interface_language":
+      return require("./interface-messages.cjs").setInterfaceLanguage(args.language);
+    case "app_input_languages": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      const handle = process.platform === "win32" && window?.getNativeWindowHandle();
+      const helper = process.platform === "win32" ? liveWindowHelper
+        : path.join(app.isPackaged ? process.resourcesPath : path.join(__dirname, "..", "build"), "input-language");
+      return require("./input-language.cjs").inputLanguages({ platform: process.platform, helper,
+        windowHandle: handle ? (handle.length === 8 ? handle.readBigUInt64LE() : handle.readUInt32LE()).toString() : undefined,
+        preferredLanguages: () => app.getPreferredSystemLanguages() });
+    }
     case "error_reporting_status": return errorReporter.status();
     case "error_reporting_set": return errorReporter.setUserEnabled(args.enabled !== false);
+    case "product_journey": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      if (!window || !chromeWindows.has(window)) return;
+      return journeyReporter.report(args.event);
+    }
+    case "desktop_activity": {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      if (isDevBuild || !window || !chromeWindows.has(window) || !window.isFocused()) return;
+      return desktopActivityReporter.report();
+    }
     case "client_environment_status": return clientEnvironment.status();
     case "client_environment_set": return clientEnvironment.setGroup(String(args.group || ""), args.enabled !== false);
     case "client_environment_app_setup": {
@@ -2533,11 +2972,21 @@ async function invokeCommand(command, args = {}, sender) {
       setTimeout(() => focusMainWindow(), 400);
       return null;
     }
+    case "app_window_state":
+    case "app_window_control": {
+      const owner = sender && !sender.isDestroyed() ? BrowserWindow.fromWebContents(sender) : null;
+      if (!owner || !chromeWindows.has(owner) || owner.webContents !== sender) throw userError("Window controls are unavailable here.");
+      return command === "app_window_state" ? windowState(owner) : controlWindow(owner, args.action);
+    }
     case "app_set_theme": {
       const theme = args.theme === "light" ? "light" : "dark";
-      nativeTheme.themeSource = theme;
-      for (const window of BrowserWindow.getAllWindows()) {
-        window.setBackgroundColor(theme === "light" ? "#f5f5f7" : "#15141c");
+      nativeTheme.themeSource = args.preference === "system" ? "system" : theme;
+      for (const window of desktopWindows()) {
+        // The macOS app window stays transparent; its page paints the background.
+        if (process.platform === "darwin" && chromeWindows.has(window)) continue;
+        if (!applyWindowChrome(window, { background: args.background, foreground: args.foreground, factor: window.webContents.getZoomFactor() }, process.platform, chromeWindows.has(window))) {
+          window.setBackgroundColor(theme === "light" ? "#f5f5f7" : "#15141c");
+        }
       }
       return null;
     }
@@ -2548,7 +2997,11 @@ async function invokeCommand(command, args = {}, sender) {
       // that were never meant to grow past the window's own size.
       const factor = Number(args.factor);
       if (!Number.isFinite(factor) || factor < 0.5 || factor > 2) throw userError("Zoom factor out of range.");
-      if (sender && !sender.isDestroyed()) sender.setZoomFactor(factor);
+      if (sender && !sender.isDestroyed()) {
+        sender.setZoomFactor(factor);
+        const owner = BrowserWindow.fromWebContents(sender);
+        if (owner && chromeWindows.has(owner)) applyWindowZoom(owner, factor, process.platform);
+      }
       return null;
     }
     case "builtin_agent_status": return await builtinAgentStatus();
@@ -2561,12 +3014,15 @@ async function invokeCommand(command, args = {}, sender) {
       if (preset.id === "custom" && !baseURL) throw userError("Enter the provider's base URL, such as http://localhost:11434/v1. Put a key in the key field, not in the URL.");
       const model = cleanModelId(args.model);
       if (!model) throw userError("Pick a model.");
+      if (preset.id === "openrouter" && !isFreeOpenRouterModel(model)) throw userError("Pick a free OpenRouter model.");
+      if (preset.id === "nvidia" && model !== defaultModelFor("nvidia") && await managedAgentEndpoint("nvidia")) throw userError("Choose a model from the Nextbrowser NVIDIA catalog.");
       await appSettings().update({ values: { [BUILTIN_AGENT_SETTINGS_KEY]: JSON.stringify({ provider: preset.id, baseURL, model }) } });
       return await builtinAgentStatus();
     }
     case "builtin_agent_key_save": {
       const preset = BUILTIN_AGENT_PROVIDERS[args.provider];
       if (!preset) throw userError("Choose a provider.");
+      if (preset.id === "openrouter") throw userError("OpenRouter uses your Nextbrowser account.");
       await builtinAgentKeys().save(preset.id, args.key);
       return await builtinAgentStatus();
     }
@@ -2618,7 +3074,7 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "read_file": return fs.readFile(args.path, "utf8");
     case "browser_verification_failure_choice": {
-      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const owner = desktopDialogOwner();
       const options = verificationFailureDialogOptions(args);
       const result = owner
         ? await dialog.showMessageBox(owner, options)
@@ -2640,14 +3096,14 @@ async function invokeCommand(command, args = {}, sender) {
       });
     }
     case "select_ssh_config": {
-      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const owner = desktopDialogOwner();
       const options = {
-        title: "Choose SSH config",
+        title: translate("Choose SSH config"),
         defaultPath: defaultSSHConfigPath(home()),
         properties: ["openFile"],
         filters: [
-          { name: "SSH config", extensions: ["conf", "config"] },
-          { name: "All files", extensions: ["*"] },
+          { name: translate("SSH config"), extensions: ["conf", "config"] },
+          { name: translate("All files"), extensions: ["*"] },
         ],
       };
       const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
@@ -2662,9 +3118,9 @@ async function invokeCommand(command, args = {}, sender) {
       return path.resolve(selectedPath);
     }
     case "select_chat_files": {
-      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const owner = desktopDialogOwner();
       const result = await dialog.showOpenDialog(owner, {
-        title: "Attach files to chat",
+        title: translate("Attach files to chat"),
         properties: ["openFile", "multiSelections"],
       });
       if (result.canceled) return [];
@@ -2681,9 +3137,9 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "artifact_import": {
       const workspaceId = String(args.workspaceId || "");
-      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const owner = desktopDialogOwner();
       const result = await dialog.showOpenDialog(owner, {
-        title: "Add artifacts",
+        title: translate("Add artifacts"),
         properties: ["openFile", "multiSelections"],
       });
       if (result.canceled) return { artifacts: await localAutomationArtifacts().list(workspaceId), imported: 0, failed: [], skipped: 0 };
@@ -2822,9 +3278,9 @@ async function invokeCommand(command, args = {}, sender) {
     }
     case "automation_element_pick_cancel": return cancelAutomationElementPick(String(args.pickId || ""));
     case "select_terminal_files": {
-      const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      const owner = desktopDialogOwner();
       const result = await dialog.showOpenDialog(owner, {
-        title: "Attach files to terminal",
+        title: translate("Attach files to terminal"),
         properties: ["openFile", "multiSelections"],
       });
       if (result.canceled) return [];
@@ -2833,7 +3289,7 @@ async function invokeCommand(command, args = {}, sender) {
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 96) || "terminal";
-      const attachmentDir = path.join(agentWorkspaceDir(home()), ".attachments", conversation);
+      const attachmentDir = path.join(localAgentWorkspace(), ".attachments", conversation);
       await fs.mkdir(attachmentDir, { recursive: true, mode: 0o700 });
       const files = [];
       let totalSize = 0;
@@ -2856,7 +3312,7 @@ async function invokeCommand(command, args = {}, sender) {
       return files;
     }
     case "remove_terminal_file": {
-      const workspace = agentWorkspaceDir(home());
+      const workspace = localAgentWorkspace();
       const attachmentRoot = path.resolve(workspace, ".attachments");
       const target = path.resolve(String(args.path || ""));
       const relative = path.relative(attachmentRoot, target);
@@ -2930,7 +3386,7 @@ async function invokeCommand(command, args = {}, sender) {
       // Agents walk parent directories for config/instruction files; inside
       // Library that can make macOS attribute unrelated TCC access requests
       // (Music, other apps' data, protected folders) to Nextbrowser.
-      const dir = agentWorkspaceDir(home());
+      const dir = localAgentWorkspace();
       await fs.mkdir(dir, { recursive: true });
       await ensureWorkspaceInstructions(dir);
       return dir;
@@ -2939,7 +3395,7 @@ async function invokeCommand(command, args = {}, sender) {
     // the UI shows what a skill recorded. The renderer never writes there: the
     // file belongs to the agent, and a write from here could overwrite a run.
     case "workspace_file_read": {
-      const file = path.join(agentWorkspaceDir(home()), safeName(args.name));
+      const file = path.join(localAgentWorkspace(), safeName(args.name));
       try {
         const content = await fs.readFile(file, "utf8");
         return content.length > MAX_WORKSPACE_FILE_BYTES ? content.slice(0, MAX_WORKSPACE_FILE_BYTES) : content;
@@ -2970,8 +3426,11 @@ async function invokeCommand(command, args = {}, sender) {
         if (access.ownerConversationId) agentControlProfileOwners.set(profile, access.ownerConversationId);
       }
       agentControlScopes.set(controlToken, profileScope);
+      const desktop = desktopAgentContext(args.agentId, sender, args.workspaceId, args.plain);
+      const {miniApps:desktopScope, desktopSettings} = desktop;
       const artifactScope = args.workspaceId
-        ? { workspaceId: String(args.workspaceId), conversationId, agentId: String(args.agentId || "codex") }
+        ? { workspaceId: String(args.workspaceId), conversationId, agentId: String(args.agentId || "codex"),
+          ...desktop, replyId:args.replyId }
         : null;
       if (artifactScope) agentControlArtifactScopes.set(controlToken, artifactScope);
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "chat-scopes");
@@ -2990,6 +3449,24 @@ async function invokeCommand(command, args = {}, sender) {
       const cwd = plain ? await plainRunDir() : args.workingDir;
       if (!plain && !builtin && args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       let agentArgs = args.args || [];
+      let stdinText = args.stdinText;
+      if (!plain && (builtin || args.agentId === 'codex' || desktopSettings.effective.harness2Recovery)) {
+        let installed;
+        // The inventory is a hint. A changed workspace or unreadable package
+        // must not prevent a chat from starting or retain its control token.
+        if (desktopScope) {
+          try { installed = miniApps().installedApps(desktopScope).map(app => app.id); }
+          catch { /* The live MCP call reports discovery errors to the agent. */ }
+        }
+        const preamble = miniAppMcp.turnContext(desktopSettings, installed) + '\n\n';
+        if (typeof stdinText === 'string' || builtin || args.agentId === 'codex') stdinText = preamble + (stdinText ?? '');
+        else if (Number.isInteger(args.promptArgIndex) && typeof agentArgs[args.promptArgIndex] === 'string') {
+          agentArgs = [...agentArgs];
+          agentArgs[args.promptArgIndex] = preamble + agentArgs[args.promptArgIndex];
+        }
+      }
+      if (args.agentId === 'claude' && desktop.comparison) agentArgs = [...miniAppMcp.claudeArgs(controlURL), ...agentArgs];
+      let customMcpEnv = {};
       if (!plain && args.agentId === "codex") {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
@@ -2998,7 +3475,14 @@ async function invokeCommand(command, args = {}, sender) {
         const supportedTraceFile = requestedTraceFile && await nextctlHasAutomationTrace(nextctlBin)
           ? requestedTraceFile
           : "";
-        agentArgs = [...codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || "")), ...agentArgs];
+        const browserMcpArgs = codexClawbrowserMCPArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || ''), desktopSettings.effective.preferWebsiteWebMCP);
+        if (artifactScope?.miniApps) browserMcpArgs.push(...miniAppMcp.codexArgs(controlURL));
+        agentArgs = [...browserMcpArgs, ...agentArgs];
+        if (args.workspaceId) {
+          const custom = codexUserMcp(await userMcp().enabled(args.workspaceId));
+          agentArgs = [...browserMcpArgs, ...custom.args, ...(args.args || [])];
+          customMcpEnv = custom.env;
+        }
       }
       const emitStep = (step) => { if (step) emit("agent:step", [args.replyId, step]); };
       const emitText = (text) => emit("agent:chunk", [args.replyId, text]);
@@ -3013,7 +3497,9 @@ async function invokeCommand(command, args = {}, sender) {
           const selected = browserProfiles.find((item) => item?.selected === true && profileScope.has(item.name));
           const result = await runBuiltinAgent({
             replyId: args.replyId,
-            prompt: String(args.stdinText ?? ""),
+            prompt: String(stdinText ?? ""),
+            chatTurn: plain ? undefined : args.chatTurn,
+            desktopSettings,
             plain,
             run: plain ? "plain" : "chat",
             mcpEnv: {
@@ -3030,9 +3516,9 @@ async function invokeCommand(command, args = {}, sender) {
               ? Object.keys(mcpProfileScope(new Map(), args.multiloginSelection)).find((name) => name.startsWith("mlx-browser-")) || ""
               : selected?.name || (profileScope.size === 1 ? [...profileScope.keys()][0] : ""),
             onStep: emitStep,
+            onReport: plain ? undefined : report => emit("agent:report", [args.replyId, report]),
             ...(plain ? { limits: { runTimeoutMs: 5 * 60_000 } } : {}),
           });
-          if (result.stdout) emitText(result.stdout);
           emit("agent:done", [args.replyId, result.code, result.stderr, result.stdout, result.reason, result.failure]);
           return { code: result.code, stdout: result.stdout, stderr: result.stderr, reason: result.reason, failure: result.failure };
         }
@@ -3043,6 +3529,7 @@ async function invokeCommand(command, args = {}, sender) {
           args: spec.args,
           cwd,
           env: childEnv({
+            ...customMcpEnv,
             NEXTBROWSER_CONTROL_URL: controlURL,
             NEXTBROWSER_WORKSPACE_ID: String(args.workspaceId || ""),
             NEXTBROWSER_CONTROL_TOKEN: controlToken,
@@ -3050,7 +3537,7 @@ async function invokeCommand(command, args = {}, sender) {
             NEXTBROWSER_PROFILE_SCOPE_FILE: profileScopeFile,
             ...(activeAutomationTraceFile() ? { NEXTBROWSER_AUTOMATION_TRACE_FILE: activeAutomationTraceFile() } : {}),
           }),
-          stdinText: args.stdinText,
+          stdinText,
           onSpawn: (child) => children.set(args.replyId, child),
           onStdout: (chunk) => {
             if (claudeStream) claudeStream.write(chunk);
@@ -3090,17 +3577,18 @@ async function invokeCommand(command, args = {}, sender) {
           replyId: `author-${randomUUID()}`,
           prompt: String(args.stdinText ?? ""),
           plain: true,
-          run: "workflow_author",
+          run: args.purpose === "session_title" ? "session_title" : "workflow_author",
           limits: { runTimeoutMs: 120_000 },
         });
         return { code: result.code, stdout: result.stdout, stderr: result.stderr };
       }
       const bin = resolveBinary(args.binary, args.envVar); if (!bin) throw userError(`${args.binary} executable not found.`);
       const spec = commandSpec(bin, args.args || []);
+      const authorDir = args.purpose === "session_title" ? await plainRunDir() : args.workingDir;
       const startedAt = Date.now();
       return new Promise((resolve, reject) => {
         const child = spawn(spec.file, spec.args, {
-          cwd: args.workingDir || undefined,
+          cwd: authorDir || undefined,
           env: childEnv(), windowsHide: true,
           stdio: [args.stdinText != null ? "pipe" : "ignore", "pipe", "pipe"],
         });
@@ -3118,7 +3606,7 @@ async function invokeCommand(command, args = {}, sender) {
           reportAgentResult({
             agentId: String(args.agentId || path.basename(String(args.binary || "")).replace(/\.(?:exe|cmd)$/i, "")).toLowerCase(),
             result,
-            run: "workflow_author",
+            run: args.purpose === "session_title" ? "session_title" : "workflow_author",
             durationMs: Date.now() - startedAt,
             outcome: { timedOut, quitting: appQuitting },
           });
@@ -3170,10 +3658,13 @@ async function invokeCommand(command, args = {}, sender) {
         if (access.ownerConversationId) agentControlProfileOwners.set(profile, access.ownerConversationId);
       }
       agentControlScopes.set(controlToken, profileScope);
+      const desktop = desktopAgentContext(resolvedAgentId, sender, args.workspaceId);
+      const {desktopSettings} = desktop;
       if (args.workspaceId) agentControlArtifactScopes.set(controlToken, {
         workspaceId: String(args.workspaceId),
         conversationId: String(args.conversationId || ""),
         agentId: resolvedAgentId,
+        ...desktop,
       });
       const profileScopeDir = path.join(nextbrowserRuntimeRoot(), "terminal-scopes");
       const profileScopeFile = path.join(profileScopeDir, `${id}.json`);
@@ -3181,13 +3672,14 @@ async function invokeCommand(command, args = {}, sender) {
       await fs.writeFile(profileScopeFile, JSON.stringify(mcpProfileScope(profileScope, args.multiloginSelection)), "utf8");
       if (args.workingDir) await ensureWorkspaceInstructions(args.workingDir, String(args.browserContext || ""));
       // Only the app's own workspace folder is trusted on the user's behalf.
-      const workspaceDir = agentWorkspaceDir(home());
+      const workspaceDir = localAgentWorkspace();
       if (resolvedAgentId === "claude" && args.workingDir && path.resolve(String(args.workingDir)) === workspaceDir) {
         // Skip Claude Code's first-run screens; a failure only leaves them showing.
         await prepareClaudeTerminalConfig({ workspaceDir, homeDir: home() }).catch(() => undefined);
       }
       const writableDirs = resolvedAgentId === "codex" ? clawbrowserWritableDirs() : [];
       let agentArgs = agent.args || [];
+      if (resolvedAgentId === 'claude' && desktop.comparison) agentArgs = [...miniAppMcp.claudeArgs(controlURL), ...agentArgs];
       if (resolvedAgentId === "codex") {
         await ensureCodexTerminalProfile();
         const nextctlBin = await resolveOrInstallNextctl();
@@ -3196,7 +3688,8 @@ async function invokeCommand(command, args = {}, sender) {
         const supportedTraceFile = requestedTraceFile && await nextctlHasAutomationTrace(nextctlBin)
           ? requestedTraceFile
           : "";
-        agentArgs = codexClawbrowserArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || ""));
+        agentArgs = codexClawbrowserArgs(nextctlBin, supportedTraceFile, String(args.workspaceId || ""), desktopSettings.effective.preferWebsiteWebMCP);
+        if (agentControlArtifactScopes.get(controlToken)?.miniApps) agentArgs.push(...miniAppMcp.codexArgs(controlURL));
       }
       await Promise.all(writableDirs.map((dir) => fs.mkdir(dir, { recursive: true })));
       const terminalArgs = [
@@ -3210,6 +3703,7 @@ async function invokeCommand(command, args = {}, sender) {
         rows: Math.max(2, Math.min(300, Number(args.rows) || 24)),
         cwd: args.workingDir || home(),
         env: terminalEnv({
+          NEXTBROWSER_HARNESS2_MODE: desktopSettings.effective.harness2Mode,
           NEXTBROWSER_CONTROL_URL: controlURL,
           NEXTBROWSER_WORKSPACE_ID: String(args.workspaceId || ""),
           NEXTBROWSER_CONTROL_TOKEN: controlToken,
@@ -3258,7 +3752,7 @@ async function invokeCommand(command, args = {}, sender) {
       const text = typeof args.text === "string" ? args.text.slice(0, 1024 * 1024) : "";
       const window = sender ? BrowserWindow.fromWebContents(sender) : undefined;
       const menu = Menu.buildFromTemplate([{
-        label: "Copy",
+        label: translate("Copy"),
         enabled: text.length > 0,
         accelerator: "CmdOrCtrl+C",
         click: () => clipboard.writeText(text),
@@ -3300,10 +3794,16 @@ async function invokeCommand(command, args = {}, sender) {
       );
       record.profileScope = nextScope;
       agentControlScopes.set(record.controlToken, nextScope);
+      const previousDesktop = agentControlArtifactScopes.get(record.controlToken);
       if (args.workspaceId) agentControlArtifactScopes.set(record.controlToken, {
         workspaceId: String(args.workspaceId),
         conversationId,
         agentId: String(args.agentId || record.agentId || "codex"),
+        desktopSettings: previousDesktop?.desktopSettings,
+        comparison: previousDesktop?.workspaceId === args.workspaceId && previousDesktop.comparison
+          ? (previousDesktop.conversationId === conversationId ? previousDesktop.comparison :
+              {scope:previousDesktop.comparison.scope,run:harness2.createComparisons()}) : undefined,
+        miniApps: previousDesktop?.miniApps?.workspaceId === args.workspaceId ? previousDesktop.miniApps : undefined,
       });
       else agentControlArtifactScopes.delete(record.controlToken);
       await fs.writeFile(record.profileScopeFile, JSON.stringify(mcpProfileScope(nextScope, args.multiloginSelection)), "utf8");
@@ -3431,16 +3931,78 @@ function applyAppIcon() {
 
 function createWindow() {
   const icon = loadAppIcon();
+  const size = restoredWindowSize(appSettings(), screen.getPrimaryDisplay().workAreaSize);
   const window = new BrowserWindow({
-    title: isDevBuild ? "Nextbrowser DEV" : "Nextbrowser", width: 1180, height: 760, minWidth: 960, minHeight: 640,
+    title: isDevBuild ? "Nextbrowser DEV" : "Nextbrowser", width: size.width, height: size.height,
+    minWidth: MIN_WINDOW_SIZE.width, minHeight: MIN_WINDOW_SIZE.height,
     backgroundColor: "#0e0e0e", show: false,
+    // macOS Live shows the local browser window through the Processes panel.
+    ...(process.platform === "darwin" ? { transparent: true, backgroundColor: "#00000000" } : {}),
+    ...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors),
     // The native menu looks like Electron chrome in the Windows product UI.
     // Keep keyboard access through Alt without reserving visual space for it.
     ...(process.platform === "win32" ? { autoHideMenuBar: true } : {}),
     ...(icon ? { icon } : {}),
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, backgroundThrottling: false },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, backgroundThrottling: false,
+      additionalArguments: process.platform === "darwin" ? [] : ["--nextbrowser-custom-caption"] },
   });
-  window.once("ready-to-show", () => window.show());
+  chromeWindows.add(window);
+  if (process.platform === "win32") fitWindowSize(window, size);
+  rememberWindowSize(window, appSettings(), size);
+  accountActivity.bind(window);
+  miniApps().guardWindow(window);
+  if (process.platform === "win32" || process.platform === "darwin") {
+    const syncLiveWindow = () => liveWindows.syncBounds(window);
+    window.on("move", syncLiveWindow);
+    window.on("resize", syncLiveWindow);
+    window.on("restore", syncLiveWindow);
+    window.on("minimize", syncLiveWindow);
+    window.on("hide", syncLiveWindow);
+    window.on("show", syncLiveWindow);
+    window.on("resized", syncLiveWindow);
+  }
+  let nativeWindowCloseReady = false;
+  let nativeWindowClosing = false;
+  watchWindowState(window);
+  window.once("ready-to-show", () => {
+    if (!scheduleWorker) {
+      if (size.maximized) window.maximize();
+      window.show();
+    }
+  });
+  window.webContents.once("did-finish-load", () => {
+    if (!scheduleWorker) window.webContents.send("schedule:foreground");
+  });
+  window.on("close", (event) => {
+    if (!nativeWindowCloseReady && liveWindows.hasWork(window)) {
+      event.preventDefault();
+      if (nativeWindowClosing) return;
+      nativeWindowClosing = true;
+      void liveWindows.close(window).catch(error => console.warn("[live-window]", error.message)).finally(() => {
+        nativeWindowCloseReady = true;
+        if (window.isDestroyed()) return;
+        window.close();
+      });
+      return;
+    }
+    if (appQuitting || allowedWindowClose.has(window)) return;
+    const mainWindows = BrowserWindow.getAllWindows().filter(candidate => chromeWindows.has(candidate));
+    if (mainWindows.length !== 1) return;
+    event.preventDefault();
+    if (checkingWindowClose.has(window)) return;
+    checkingWindowClose.add(window);
+    void prepareScheduleQuit(window).then(() => {
+      if (window.isDestroyed() || appQuitting) return;
+      if (process.platform !== "darwin" || restartForSchedules) {
+        app.quit();
+      } else {
+        scheduleQuitPrepared = false;
+        scheduleQuitPreparation = undefined;
+        allowedWindowClose.add(window);
+        window.close();
+      }
+    });
+  });
   window.on("unresponsive", () => {
     if (appQuitting) return;
     errorReporter.capture({
@@ -3457,29 +4019,79 @@ function createWindow() {
   // account and browser sessions managed outside the renderer.
   let refreshPending = false;
   window.webContents.on("before-input-event", (event, input) => {
+    const zoom = interfaceZoomShortcut(input, process.platform);
+    if (zoom) {
+      event.preventDefault();
+      window.webContents.send("interface-zoom-shortcut", zoom);
+      return;
+    }
     if (input.type !== "keyDown" || String(input.key).toLowerCase() !== "r"
       || !(input.meta || input.control) || input.alt || input.shift) return;
     event.preventDefault();
     if (refreshPending) return;
     refreshPending = true;
+    saveWindowSize(window, appSettings());
     const replacement = createWindow();
     replacement.once("ready-to-show", () => {
       if (!window.isDestroyed()) window.close();
     });
   });
-  window.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
+  window.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    if (url === "about:blank" && frameName === "nextbrowser-live-viewer") {
+      return { action: "allow", overrideBrowserWindowOptions: { autoHideMenuBar: true, minWidth: 420, minHeight: 280 } };
+    }
+    if (/^https?:/.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  window.webContents.on("did-create-window", (viewer, { frameName }) => {
+    if (frameName !== "nextbrowser-live-viewer") return;
+    viewer.webContents.on("will-navigate", (event) => event.preventDefault());
+    viewer.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    viewer.webContents.on("did-attach-webview", (_event, guest) => guest.setWindowOpenHandler(() => ({ action: "deny" })));
+  });
   window.webContents.on("did-attach-webview", (_event, webContents) => {
     webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   });
   const windowWebContentsId = window.webContents.id;
   window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
-    if (isMainFrame && !isInPlace) killTerminalsForWebContents(windowWebContentsId);
+    if (isMainFrame && !isInPlace) {
+      accountActivity.owner(window, null);
+      killTerminalsForWebContents(windowWebContentsId);
+      if (liveWindows.hasWork(window)) void liveWindows.reset(window).catch(() => undefined);
+    }
   });
-  window.webContents.on("render-process-gone", () => killTerminalsForWebContents(windowWebContentsId));
+  window.webContents.on("render-process-gone", () => {
+    accountActivity.owner(window, null);
+    killTerminalsForWebContents(windowWebContentsId);
+    if (liveWindows.hasWork(window)) void liveWindows.reset(window).catch(() => undefined);
+  });
   window.on("closed", () => killTerminalsForWebContents(windowWebContentsId));
-  if (process.env.VITE_DEV_SERVER_URL) window.loadURL(process.env.VITE_DEV_SERVER_URL);
-  else window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+  const query = scheduleWorker ? { backgroundSchedule: "1" } : {};
+  if (process.env.VITE_DEV_SERVER_URL) {
+    const url = new URL(process.env.VITE_DEV_SERVER_URL);
+    if (scheduleWorker) url.searchParams.set("backgroundSchedule", "1");
+    void window.loadURL(url.href);
+  } else {
+    void window.loadFile(path.join(__dirname, "..", "dist", "index.html"), { query });
+  }
   return window;
+}
+
+function prepareScheduleQuit(window) {
+  if (!scheduleQuitPreparation) {
+    scheduleQuitPreparation = (async () => {
+      saveWindowSize(window, appSettings());
+      await flushScheduleWindow(ipcMain, window);
+      await appSettings().flush();
+      await accountActivity.flush();
+      restartForSchedules = await hasEnabledSchedules(dataDir());
+    })().catch(error => {
+      logCrash("schedule-handoff", { message: error.message });
+    }).finally(() => {
+      scheduleQuitPrepared = true;
+    });
+  }
+  return scheduleQuitPreparation;
 }
 
 // Crash breadcrumbs. The app has been seen dying without a trace in stdout, so
@@ -3549,18 +4161,37 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on("second-instance", (_event, argv) => {
-    focusMainWindow();
+    openScheduledWorkerWindow();
     for (const arg of argv) handleDeepLink(arg);
   });
-  app.whenReady().then(() => {
+  const pendingReset = fsSync.existsSync(path.join(dataDir(), RESET_MARKER));
+  finishPendingWorkspaceReset({
+    userData: dataDir(),
+    sessionData: app.getPath("sessionData"),
+    runtime: nextbrowserRuntimeRoot(),
+    nextctl: managedNextctlRoot(),
+    workspace: localAgentWorkspace(),
+    protectedRoots: [home(), app.getPath("appData"), app.getAppPath()],
+  }).then(() => {
+    if (pendingReset) {
+      errorReporter = createClientErrorReporter(errorReporterOptions);
+      clientEnvironment = createClientEnvironment(clientEnvironmentOptions);
+    }
+    return app.whenReady();
+  }).then(() => {
     // Start the GitHub request before migrations and renderer loading. The
     // header joins this same request when it mounts.
-    void requestGitHubStars();
+    if (!scheduleWorker) void requestGitHubStars();
     return migrateLegacyData();
   }).then(() => {
     return migrateLegacyRuntimeConfig();
-  }).then(() => {
+  }).then(async () => {
+    if (scheduleWorker && !await hasEnabledSchedules(dataDir())) {
+      app.quit();
+      return;
+    }
     applyAppIcon();
+    if (scheduleWorker) app.dock?.hide();
     // The account-pairing flow is completed by polling, so a development build
     // never needs to own `nextbrowser://`. On macOS LaunchServices associates a
     // dev registration with Electron.app itself and silently drops the script
@@ -3573,14 +4204,70 @@ if (!gotLock) {
       if (app.getApplicationNameForProtocol(`${DEEP_LINK_PROTOCOL}://`) === "Electron") {
         app.removeAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
       }
-    } else {
+    } else if (!scheduleWorker) {
       app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
     }
-    ipcMain.handle("nextbrowser:invoke", (event, command, args) => {
+    ipcMain.handle("nextbrowser:invoke", async (event, command, args) => {
+      if (miniApps().isGuest(event.sender)) throw Error("Desktop commands are unavailable.");
+      if (command === "app_input_languages" || command === "app_set_interface_language") {
+        const owner = BrowserWindow.fromWebContents(event.sender);
+        if (!chromeWindows.has(owner) || event.sender !== owner.webContents || event.senderFrame !== event.sender.mainFrame) {
+          throw Error("Interface language settings require the desktop window.");
+        }
+      }
+      if (command === "account_github_profile" || command === "account_manage_identity") {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!chromeWindows.has(window) || event.sender !== window.webContents || event.senderFrame !== event.sender.mainFrame) {
+          throw userError("Open account settings in the desktop window.");
+        }
+      }
+      if (command === "device_sessions_list" && event.senderFrame !== event.sender.mainFrame) throw Error("Open device sessions in the desktop window.");
+      if (typeof command === 'string' && command.startsWith('personal_profiles_')) {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!chromeWindows.has(window) || event.sender !== window.webContents || event.senderFrame !== event.sender.mainFrame) throw Error('Personal profiles require the desktop window.');
+        const scope = miniApps().agentScope(event.sender, args?.workspaceId);
+        const current = () => !!scope && !window.isDestroyed() && miniApps().agentScope(event.sender, args.workspaceId) === scope && scope.owner === args.owner;
+        return require('./personal-profiles.cjs').personalCommand({ base: path.join(dataDir(),'personal-browser-profiles'), scope, current, dialog, shell, command, args });
+      }
+      if (typeof command === 'string' && command.startsWith('stock_mcp_')) {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!chromeWindows.has(window) || event.sender !== window.webContents || event.senderFrame !== event.sender.mainFrame) throw Error('Permissions require the main desktop window.');
+        const scope = miniApps().agentScope(event.sender, args?.workspaceId);
+        if (args?.owner !== undefined && args.owner !== scope?.owner) throw Error('The active account or workspace changed.');
+        if (command === 'stock_mcp_pending') return agentPermissions().get(scope);
+        if (command === 'stock_mcp_answer') return agentPermissions().answer(scope, args);
+        const result = await stockTools().settings(scope, command, args);
+        if (command !== 'stock_mcp_get' && currentAgentScope(scope)) {
+          window.webContents.send('stock-mcp:settings-changed', { owner: scope.owner, workspaceId: scope.workspaceId });
+        }
+        return result;
+      }
+      if ((command === 'agent_run' || command === 'terminal_start') && event.senderFrame !== event.sender.mainFrame) throw Error('Agent sessions require the desktop window.');
+      if (typeof command === "string" && command.startsWith("mini_apps_")) {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!chromeWindows.has(window) || event.senderFrame !== event.sender.mainFrame || window.webContents !== event.sender) throw Error("Mini apps require the desktop window.");
+        const result = await miniApps().command(command, args ?? {}, window);
+        if (command === 'mini_apps_context' && args?.owner && !window.isDestroyed()) {
+          window.webContents.send('stock-mcp:settings-changed', { owner: args.owner, workspaceId: args.workspaceId });
+        }
+        return result;
+      }
+      if (command === "product_journey") {
+        if (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== "window") return;
+        return invokeCommand(command, { event: args?.event }, event.sender);
+      }
+      if (command === "desktop_activity") {
+        if (event.senderFrame !== event.sender.mainFrame) return;
+        return invokeCommand(command, {}, event.sender);
+      }
+      if (command === 'support_diagnostics_copy' && (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== 'window')) throw userError('Support diagnostics are only available in the application window.');
+      if (String(command).startsWith('user_mcp_') && (event.senderFrame !== event.sender.mainFrame || event.sender.getType() !== 'window')) throw userError('MCP setup is only available in the application window.');
+      if ((command === "live_window" || command === "live_window_available" || command === "live_window_permission") &&
+          event.senderFrame !== event.sender.mainFrame) return null;
       const action = /^[a-z0-9_]{1,64}$/.test(String(command)) ? command : "unknown";
       // nbc calls get their own, more specific breadcrumb from run().
       if (action !== "nextctl_run") errorReporter.breadcrumb("ipc", action);
-      return reportingContext.run({ action }, async () => {
+      const pending = reportingContext.run({ action }, async () => {
         try {
           return await invokeCommand(command, args, event.sender);
         } catch (error) {
@@ -3589,6 +4276,9 @@ if (!gotLock) {
           throw error;
         }
       });
+      if (command === "workspace_emergency_reset") return pending;
+      pendingDesktopCommands.add(pending);
+      return pending.finally(() => pendingDesktopCommands.delete(pending));
     });
     // Fire-and-forget reports from the app window; webviews have no say.
     const fromAppWindow = (event) => {
@@ -3596,6 +4286,15 @@ if (!gotLock) {
     };
     ipcMain.on("nextbrowser:client-error", (event, payload) => {
       if (fromAppWindow(event)) errorReporter.captureFromRenderer(payload);
+    });
+    accountActivity.bindPower(require("electron").powerMonitor);
+    ipcMain.on("account-activity:owner", (event, owner) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!chromeWindows.has(win) || event.senderFrame !== event.sender.mainFrame) return;
+      if (owner === null || (typeof owner === "string" && owner.length > 0 && owner.length <= 256)) {
+        accountActivity.owner(win, owner);
+        if (owner && !scheduleWorker) void deviceSessions.heartbeat();
+      }
     });
     ipcMain.on("nextbrowser:client-breadcrumb", (event, payload) => {
       if (fromAppWindow(event)) errorReporter.breadcrumbFromRenderer(payload);
@@ -3612,17 +4311,34 @@ if (!gotLock) {
     // Fire-and-forget like error reports: messages from one window arrive in
     // order, and dragging the sidebar must not flood the IPC breadcrumbs.
     ipcMain.on("nextbrowser:settings-update", (event, patch) => {
-      if (!fromAppWindow(event)) return;
+      if (!fromAppWindow(event) || workspaceResetInProgress) return;
       appSettings().update(patch).catch((error) => console.warn("[app_settings] could not save settings", error));
     });
     createWindow();
     for (const arg of process.argv) handleDeepLink(arg);
-    startAutoUpdater();
-    startBrowserRuntimeUpdateChecks();
+    if (!scheduleWorker) {
+      const timer = setInterval(() => {
+        if (BrowserWindow.getAllWindows().some(win => chromeWindows.has(win))) void deviceSessions.heartbeat();
+      }, 5 * 60_000);
+      timer.unref();
+      app.once("before-quit", () => clearInterval(timer));
+      startAutoUpdater();
+      startBrowserRuntimeUpdateChecks();
+    }
     clientEnvironment.start();
     void refreshSystemProxyEnv();
     setInterval(() => { void refreshSystemProxyEnv(); }, 60_000).unref?.();
-    app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+    app.on("activate", () => {
+      if (scheduleWorker) openScheduledWorkerWindow();
+      else if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  }).catch(error => {
+    logCrash("startup", { message: error.message });
+    if (fsSync.existsSync(path.join(dataDir(), RESET_MARKER))) {
+      dialog.showErrorBox("Nextbrowser data reset incomplete", "Close any running Nextbrowser browser profiles and reopen Nextbrowser to finish the reset.");
+      scheduleQuitPrepared = true;
+    }
+    app.quit();
   });
 }
 app.on("open-url", (event, url) => {
@@ -3631,6 +4347,30 @@ app.on("open-url", (event, url) => {
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", (event) => {
+  if (gotLock && !scheduleWorker && !quittingForUpdate && !scheduleQuitPrepared) {
+    event.preventDefault();
+    if (!scheduleQuitPreparation) {
+      const window = BrowserWindow.getAllWindows().find(candidate => chromeWindows.has(candidate));
+      void prepareScheduleQuit(window).then(() => app.quit());
+    } else {
+      void scheduleQuitPreparation.then(() => { if (!appQuitting) app.quit(); });
+    }
+    return;
+  }
+  if (drainingLiveWindows) {
+    event.preventDefault();
+    return;
+  }
+  const liveHosts = BrowserWindow.getAllWindows().filter(window => liveWindows.hasWork(window));
+  if (liveHosts.length) {
+    event.preventDefault();
+    drainingLiveWindows = true;
+    void Promise.allSettled(liveHosts.map(window => liveWindows.close(window))).then(() => {
+      drainingLiveWindows = false;
+      app.quit();
+    });
+    return;
+  }
   appQuitting = true;
   // One bounded attempt (at most 2 s) to send queued error reports; whatever
   // is left stays in userData for the next launch.
@@ -3654,9 +4394,18 @@ app.on("before-quit", (event) => {
   agentControlArtifactScopes.clear();
   agentControlProfileOwners.clear();
   agentControlServer?.close();
+  void startPageServer?.close();
+  startPageTransports.close();
+  for (const pending of startPageRequests.values()) { clearTimeout(pending.timer); pending.reject(new Error('Nextbrowser is closing.')); }
+  startPageRequests.clear();
   agentControlServer = null;
   cancelAllCommands();
   cancelAllAutomationRecipes();
   cancelAllAutomationElementPicks();
   cancelAllAutomationPageRecordings();
+});
+app.on("will-quit", () => {
+  if (!gotLock || scheduleWorker || !restartForSchedules || quittingForUpdate) return;
+  const args = process.argv.slice(1).filter(arg => arg !== SCHEDULE_WORKER_ARG && !arg.startsWith(`${DEEP_LINK_PROTOCOL}:`));
+  app.relaunch({ args: [...args, SCHEDULE_WORKER_ARG] });
 });

@@ -1,3 +1,5 @@
+import { translate } from "../shared/lib/i18n";
+import { Tooltip } from "../shared/ui";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../electronBridge";
@@ -159,7 +161,7 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
       : hostKey(nextHosts[0] ?? { alias: "", configPath: "", explicitConfig: false }));
     if (!nextHosts.length) setMode("manual");
     if (failures.length) {
-      setError("Some SSH configuration files couldn't be read. Check the selected files and try again.");
+      setError(translate("Some SSH configuration files couldn't be read. Check the selected files and try again."));
     }
     setScanWarning(warnings.length ? warnings.join(" ") : null);
     setLoading(false);
@@ -293,7 +295,7 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
   const addConfig = async () => {
     if (configMutationRef.current) return;
     if (customConfigPathsRef.current.length >= MAX_CUSTOM_CONFIGS) {
-      setError(`You can add up to ${MAX_CUSTOM_CONFIGS} SSH config files.`);
+      setError(translate("You can add up to %1 SSH config files.", MAX_CUSTOM_CONFIGS));
       return;
     }
     configMutationRef.current = true;
@@ -365,100 +367,92 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
         <div className="vps-modal-header">
           <div className="vps-modal-mark"><Icon name="network" size={20} /></div>
           <div>
-            <strong id="vps-modal-title">Use VPS</strong>
-            <p className="muted small">Run the agent and Clawbrowser tools on a remote server over SSH.</p>
+            <strong id="vps-modal-title">{translate("Use VPS")}</strong>
+            <p className="muted small">{translate("Run the agent and Clawbrowser tools on a remote server over SSH.")}</p>
           </div>
           <span className="spacer" />
-          <button
+          <Tooltip content={translate("Close")}><button
             type="button"
             className="plain-icon-btn"
-            aria-label="Close VPS setup"
-            title="Close"
+            aria-label={translate("Close VPS setup")}
             disabled={submitting || mutatingConfig}
             onClick={onClose}
           >
             <Icon name="xmark.circle.fill" size={18} />
-          </button>
+          </button></Tooltip>
         </div>
 
         <fieldset className="vps-form-fields" disabled={submitting || mutatingConfig}>
-          <div className="vps-mode-tabs" role="group" aria-label="SSH connection type">
+          <div className="vps-mode-tabs" role="group" aria-label={translate("SSH connection type")}>
           <button
             type="button"
             aria-pressed={mode === "hosts"}
             className={mode === "hosts" ? "active" : ""}
             onClick={() => setMode("hosts")}
           >
-            <Icon name="terminal" size={13} /> Configured hosts
-          </button>
+            <Icon name="terminal" size={13} /> {translate("Configured hosts")}</button>
           <button
             type="button"
             aria-pressed={mode === "manual"}
             className={mode === "manual" ? "active" : ""}
             onClick={() => setMode("manual")}
           >
-            <Icon name="plus" size={13} /> Manual connection
-          </button>
+            <Icon name="plus" size={13} /> {translate("Manual connection")}</button>
           </div>
 
         {mode === "hosts" ? (
-          <section className="vps-configured-panel" aria-label="Configured SSH hosts">
+          <section className="vps-configured-panel" aria-label={translate("Configured SSH hosts")}>
             <div className="vps-host-toolbar">
               <label className="vps-search-field">
                 <Icon name="magnifyingglass" size={14} />
-                <span>Search SSH hosts</span>
+                <span>{translate("Search SSH hosts")}</span>
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") event.preventDefault();
                   }}
-                  placeholder="Alias, hostname, or user"
+                  placeholder={translate("Alias, hostname, or user")}
                   data-vps-autofocus="hosts"
                 />
               </label>
-              <button
+              <Tooltip content={customConfigPaths.length >= MAX_CUSTOM_CONFIGS
+                  ? translate("Up to %1 custom SSH configs are supported", MAX_CUSTOM_CONFIGS)
+                  : translate("Add another SSH config file")}><button
                 type="button"
                 className="secondary small"
                 disabled={mutatingConfig || loading || customConfigPaths.length >= MAX_CUSTOM_CONFIGS}
-                title={customConfigPaths.length >= MAX_CUSTOM_CONFIGS
-                  ? `Up to ${MAX_CUSTOM_CONFIGS} custom SSH configs are supported`
-                  : "Add another SSH config file"}
                 onClick={() => void addConfig()}
               >
-                {configMutation === "add" ? <Spinner size={13} /> : <Icon name="plus" size={13} />}
-                Add SSH config
-              </button>
+                {configMutation === "add" ? <Spinner size={13} /> : <Icon name="plus" size={13} />}{translate("Add SSH config")}</button></Tooltip>
             </div>
 
             {customConfigPaths.length > 0 && (
-              <div className="vps-custom-sources" aria-label="Additional SSH config files">
+              <div className="vps-custom-sources" aria-label={translate("Additional SSH config files")}>
                 {customConfigPaths.map((path) => (
-                  <div className="vps-custom-source" key={path} title={path}>
+                  <Tooltip key={path} content={path}><div className="vps-custom-source">
                     <Icon name="doc" size={13} />
                     <span>{fileName(path)}</span>
                     <span className="muted vps-source-path">{path}</span>
-                    <button
+                    <Tooltip content={translate("Remove custom SSH config")}><button
                       type="button"
                       className="plain-icon-btn plain-icon-btn-compact"
-                      aria-label={`Remove SSH config ${fileName(path)}`}
-                      title="Remove custom SSH config"
+                      aria-label={translate("Remove SSH config %1", fileName(path))}
                       disabled={mutatingConfig}
                       onClick={() => void removeConfig(path)}
                     >
                       <Icon name="trash" size={12} />
-                    </button>
-                  </div>
+                    </button></Tooltip>
+                  </div></Tooltip>
                 ))}
               </div>
             )}
 
             {loading ? (
               <div className="vps-panel-state" aria-live="polite" aria-atomic="true">
-                <Spinner size={16} /> Scanning SSH configs…
-              </div>
+                <Spinner size={16} /> {translate("Scanning SSH configs…")}</div>
             ) : filteredHosts.length ? (
-              <div className="vps-host-list" role="group" aria-label="SSH hosts">
+              <div className="vps-host-list" role="group" aria-label={translate("SSH hosts")}>
                 {filteredHosts.map((host) => {
                   const selected = hostKey(host) === selectedHostKey;
                   const source = host.sourcePath && host.sourcePath !== host.configPath
@@ -479,11 +473,11 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
                           <strong>{host.alias}</strong>
                           <span className="muted">{resolvedTarget(host)}</span>
                         </span>
-                        <span className="vps-host-meta" title={source}>
+                        <Tooltip content={source}><span className="vps-host-meta">
                           {fileName(host.configPath)}
-                          {host.sourcePath && host.sourcePath !== host.configPath && ` · included from ${fileName(host.sourcePath)}`}
-                          {host.identityFile && ` · ${fileName(host.identityFile)} configured`}
-                        </span>
+                          {host.sourcePath && host.sourcePath !== host.configPath && translate(" · included from %1", fileName(host.sourcePath))}
+                          {host.identityFile && translate(" · %1 configured", fileName(host.identityFile))}
+                        </span></Tooltip>
                       </span>
                       {selected && <Icon name="checkmark.circle.fill" size={15} className="ok" />}
                     </button>
@@ -493,18 +487,18 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
             ) : (
               <div className="vps-panel-state" role="status" aria-live="polite">
                 <Icon name="folder" size={18} />
-                <span>{hosts.length ? "No SSH hosts match this search." : "No concrete hosts found in your SSH configs."}</span>
+                <span>{hosts.length ? translate("No SSH hosts match this search.") : translate("No concrete hosts found in your SSH configs.")}</span>
                 {!hosts.length && (
-                  <button type="button" className="mini" onClick={() => setMode("manual")}>Enter connection manually</button>
+                  <button type="button" className="mini" onClick={() => setMode("manual")}>{translate("Enter connection manually")}</button>
                 )}
               </div>
             )}
           </section>
         ) : (
-          <section className="vps-manual-panel" aria-label="Manual SSH connection">
+          <section className="vps-manual-panel" aria-label={translate("Manual SSH connection")}>
             <div className="vps-manual-grid">
               <label className="modal-field vps-host-field">
-                <span>Host</span>
+                <span>{translate("Host")}</span>
                 <input
                   value={manualHost}
                   onChange={(event) => setManualHost(event.target.value)}
@@ -516,17 +510,17 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
                 />
               </label>
               <label className="modal-field">
-                <span>User (optional)</span>
+                <span>{translate("User (optional)")}</span>
                 <input
                   value={manualUser}
                   onChange={(event) => setManualUser(event.target.value)}
-                  placeholder="root"
+                  placeholder={translate("root")}
                   aria-invalid={!!commandPreview.error && commandPreview.error.startsWith("SSH user")}
                   aria-describedby={commandPreview.error ? "vps-command-error" : undefined}
                 />
               </label>
               <label className="modal-field">
-                <span>Port</span>
+                <span>{translate("Port")}</span>
                 <input
                   value={manualPort}
                   onChange={(event) => setManualPort(event.target.value)}
@@ -537,7 +531,7 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
                 />
               </label>
               <label className="modal-field vps-identity-field">
-                <span>Identity file (optional)</span>
+                <span>{translate("Identity file (optional)")}</span>
                 <input
                   value={manualIdentityFile}
                   onChange={(event) => setManualIdentityFile(event.target.value)}
@@ -547,25 +541,25 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
                 />
               </label>
             </div>
-            {!manualPortValid && <div className="error small" id="vps-port-error">Port must be a number from 1 to 65535.</div>}
-            <p className="muted small vps-password-note">Passwords are never stored. Use your SSH agent or an identity file.</p>
+            {!manualPortValid && <div className="error small" id="vps-port-error">{translate("Port must be a number from 1 to 65535.")}</div>}
+            <p className="muted small vps-password-note">{translate("Passwords are never stored. Use your SSH agent or an identity file.")}</p>
           </section>
         )}
 
         <label className="modal-field vps-task-field">
-          <span>Task (optional)</span>
+          <span>{translate("Task (optional)")}</span>
           <textarea
             rows={3}
             value={task}
             onChange={(event) => setTask(event.target.value)}
-            placeholder="What should the agent do with Clawbrowser on this VPS?"
+            placeholder={translate("What should the agent do with Clawbrowser on this VPS?")}
           />
         </label>
 
-        <section className={`vps-command-preview${commandPreview.error ? " is-error" : ""}`} aria-label="SSH command preview">
+        <section className={`vps-command-preview${commandPreview.error ? " is-error" : ""}`} aria-label={translate("SSH command preview")}>
           <div>
             <Icon name="terminal" size={13} />
-            <span>SSH command</span>
+            <span>{translate("SSH command")}</span>
           </div>
           <code id={commandPreview.error ? "vps-command-error" : undefined} role={commandPreview.error ? "alert" : undefined}>
             {commandPreview.text}
@@ -574,7 +568,7 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
 
           <div className="vps-safety-note">
             <Icon name="checkmark.shield.fill" size={15} />
-            <span>The prompt keeps Clawbrowser and nextctl on the VPS. Only safe host fields are imported; the source config is not passed to ssh and configured identity-file contents are not read or sent.</span>
+            <span>{translate("The prompt keeps Clawbrowser and nextctl on the VPS. Only safe host fields are imported; the source config is not passed to ssh and configured identity-file contents are not read or sent.")}</span>
           </div>
         </fieldset>
 
@@ -587,14 +581,14 @@ export function VPSSetupModal({ onClose }: { onClose: () => void }) {
         )}
 
         <div className="modal-actions">
-          <button type="button" className="secondary" disabled={submitting || mutatingConfig} onClick={onClose}>Cancel</button>
+          <button type="button" className="secondary" disabled={submitting || mutatingConfig} onClick={onClose}>{translate("Cancel")}</button>
           <button
             type="submit"
             className="primary"
             disabled={!connection || !commandPreview.valid || submitting || mutatingConfig || (mode === "hosts" && loading)}
           >
             {submitting ? <Spinner size={14} /> : <Icon name="arrow.up.circle.fill" size={14} />}
-            {submitting ? "Starting…" : "Start in chat"}
+            {submitting ? translate("Starting…") : translate("Start in chat")}
           </button>
         </div>
       </form>

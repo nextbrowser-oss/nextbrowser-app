@@ -31,8 +31,8 @@ Set it up in **Settings → Agent** (choose "Nextbrowser agent"), or with **Use 
 
 | Provider | Base URL | Free use | Data |
 | --- | --- | --- | --- |
-| NVIDIA (default) | <code>https://integrate.api.nvidia.com/v1</code> | A free key from [build.nvidia.com](https://build.nvidia.com), about 40 requests a minute. Nextbrowser preselects a Nemotron model: Super, else Ultra, else Nano, the newest first. | NVIDIA offers its hosted models for development and testing. |
-| OpenRouter | <code>https://openrouter.ai/api/v1</code> | Free models end in <code>:free</code>; <code>openrouter/free</code> picks a free model with the features a request needs. About 50 requests a day on a free account. | Free models can come from providers that log or train on prompts. |
+| NVIDIA | <code>https://integrate.api.nvidia.com/v1</code> | A free key from [build.nvidia.com](https://build.nvidia.com), about 40 requests a minute. Nextbrowser preselects a Nemotron model: Super, else Ultra, else Nano, the newest first. | NVIDIA offers its hosted models for development and testing. |
+| OpenRouter (default) | Managed through Nextbrowser | Nemotron 3.5 Super VL (free) after sign-in. Other free tool-capable models are available in Settings. | Free models may use providers that log prompts or use them for training. |
 | Google Gemini | <code>https://generativelanguage.googleapis.com/v1beta/openai</code> | The free tier of Gemini Flash, with daily limits. | On the free tier, Google may use prompts to improve its products. |
 | Custom | Any OpenAI-compatible base URL | Groq, Ollama (<code>http://localhost:11434/v1</code>), LM Studio, or a paid key. The key is optional. | Up to the provider; a local model keeps everything on the computer. |
 

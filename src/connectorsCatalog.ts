@@ -9,7 +9,7 @@ export type ConnectorId = (typeof CONNECTORS)[number]["id"];
 export const CONNECTOR_PROMPT_RESUMED_EVENT = "nextbrowser:connector-prompt-resumed";
 
 /// A flow that needs a connector before it can finish sends the person to the
-/// Connectors page and records where to hand them back afterwards.
+/// Connectors dialog and records where to hand them back afterwards.
 export interface ConnectorPrompt {
   id: ConnectorId;
   returnTab?: AppTab;

@@ -1,3 +1,5 @@
+import { translate } from "../shared/lib/i18n";
+import { Tooltip } from "../shared/ui";
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "./Icon";
 import { SETTINGS_SECTIONS, settingsSectionAfterKey, settingsSectionInfo, type SettingsSection } from "../lib/settingsSections";
@@ -30,13 +32,12 @@ export function SettingsRail({
     tabs.current[next]?.focus();
   };
   return (
-    <div className="settings-rail" role="tablist" aria-orientation="vertical" aria-label="Settings sections" onKeyDown={move}>
+    <div className="settings-rail" role="tablist" aria-orientation="vertical" aria-label={translate("Settings sections")} onKeyDown={move}>
       {SETTINGS_SECTIONS.map((item) => {
         const selected = item.id === section;
         const note = attention[item.id];
         return (
-          <button
-            key={item.id}
+          <Tooltip key={item.id} content={note ? `${item.label}: ${note}` : item.label}><button
             ref={(node) => { tabs.current[item.id] = node; }}
             id={settingsTabId(item.id)}
             type="button"
@@ -46,13 +47,12 @@ export function SettingsRail({
             aria-label={note ? `${item.label}, ${note}` : undefined}
             tabIndex={selected ? 0 : -1}
             className={"settings-rail-item" + (selected ? " is-active" : "")}
-            title={note ? `${item.label}: ${note}` : item.label}
             onClick={() => onSelect(item.id)}
           >
             <Icon name={item.icon} size={15} />
             <span>{item.label}</span>
             {note && <span className="settings-rail-dot" aria-hidden="true" />}
-          </button>
+          </button></Tooltip>
         );
       })}
     </div>

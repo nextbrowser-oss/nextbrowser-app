@@ -1,3 +1,4 @@
+import { translate } from "../shared/lib/i18n";
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
@@ -126,7 +127,7 @@ export function PersonalProxySelect({ value, proxies, disabled = false, ariaLabe
   return (
     <div className="personal-proxy-select" ref={rootRef}>
       <button ref={triggerRef} type="button" className={`personal-proxy-select-trigger${open ? " is-open" : ""}`} disabled={disabled} aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={`${id}-listbox`} onClick={() => open ? close() : show()} onKeyDown={onKeyDown}>
-        <span className="personal-proxy-select-copy">{selected ? <><strong>{selected.name}</strong><small>{selected.scheme.toUpperCase()} · {selected.host}:{selected.port}</small></> : <span>Choose a proxy</span>}</span>
+        <span className="personal-proxy-select-copy">{selected ? <><strong>{selected.name}</strong><small>{selected.scheme.toUpperCase()} · {selected.host}:{selected.port}</small></> : <span>{translate("Choose a proxy")}</span>}</span>
         <Icon name="chevron.down" size={14} className="personal-proxy-select-chevron" />
       </button>
       {open && createPortal(
@@ -140,7 +141,7 @@ export function PersonalProxySelect({ value, proxies, disabled = false, ariaLabe
               </button>;
             })}
           </div>
-          <button type="button" className="personal-proxy-select-add" onClick={() => { close(); onAdd(); }}><Icon name="plus" size={13} /> Add proxy</button>
+          <button type="button" className="personal-proxy-select-add" onClick={() => { close(); onAdd(); }}><Icon name="plus" size={13} /> {translate("Add proxy")}</button>
         </div>,
         document.body,
       )}

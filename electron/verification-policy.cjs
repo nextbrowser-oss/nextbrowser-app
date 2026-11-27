@@ -1,3 +1,4 @@
+const { translate } = require("./interface-messages.cjs");
 async function requireVerificationCapableCLI(binary, run, { timeoutMs = 5000 } = {}) {
   if (!binary) throw new Error("VERIFY_REQUIRED: Nextbrowser CLI is unavailable.");
   // Parse both safety flags without executing version's authenticated pre-run.
@@ -14,18 +15,18 @@ function verificationFailureDialogOptions({ failedSurfaces, proxyExpected = true
   const offerDirect = proxyExpected && attempts === 3;
   return {
     type: "warning",
-    title: "Browser verification failed",
-    message: proxyExpected ? "This profile couldn’t connect through its proxy." : "The browser didn’t pass its safety check.",
+    title: translate("Browser verification failed"),
+    message: proxyExpected ? translate("This profile couldn’t connect through its proxy.") : translate("The browser didn’t pass its safety check."),
     detail: [
       offerDirect
-        ? "Three attempts with the same proxy failed. The profile is stopped. Continue in a separate session without a proxy? Websites will see your real IP. The original proxy profile and its browser data will not be transferred or changed."
+        ? translate("Three attempts with the same proxy failed. The profile is stopped. Continue in a separate session without a proxy? Websites will see your real IP. The original proxy profile and its browser data will not be transferred or changed.")
         : proxyExpected
-        ? "The browser was stopped so it never runs without its proxy. This is a problem on our side, not with your setup. Message us in Discord and we’ll sort it out."
-        : "The browser was stopped before any action ran. This is a problem on our side, not with your setup. Message us in Discord and we’ll sort it out.",
+        ? translate("The browser was stopped so it never runs without its proxy. This is a problem on our side, not with your setup. Message us in Discord and we’ll sort it out.")
+        : translate("The browser was stopped before any action ran. This is a problem on our side, not with your setup. Message us in Discord and we’ll sort it out."),
       // Support reads this line off a screenshot; it names what failed.
-      surfaces.length ? `Failed checks: ${surfaces.join(", ")}.` : "",
+      surfaces.length ? translate("Failed checks: %1.", surfaces.join(", ")) : "",
     ].filter(Boolean).join("\n\n"),
-    buttons: offerDirect ? ["Cancel", "Continue without proxy", SUPPORT_BUTTON] : ["Cancel", SUPPORT_BUTTON],
+    buttons: offerDirect ? [translate("Cancel"), translate("Continue without proxy"), translate(SUPPORT_BUTTON)] : [translate("Cancel"), translate(SUPPORT_BUTTON)],
     defaultId: 0,
     cancelId: 0,
     noLink: true,
